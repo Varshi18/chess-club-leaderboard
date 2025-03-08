@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 
 export const tournamentsData = [
-  { name: "Blitz Battles-2", link: "https://www.chess.com/play/tournament/5518743", date: "2025-03-08" },
+  { name: "Blitz Battles-2", link: "https://www.chess.com/play/tournament/5519883", date: "2025-03-09" },
   { name: "Rapid Showdown-3", link: "https://www.chess.com/play/tournament/5518983", date: "2025-03-09" },
   { name: "Blitz Battles-1", link: "https://www.chess.com/tournament/live/blitz-battles-1-5417455", date: "2025-01-25" },
   { name: "Rapid Showdown-2", link: "https://www.chess.com/tournament/live/rapid-showdown-2-5398853", date: "2025-01-19" },
