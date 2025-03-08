@@ -7,7 +7,7 @@ const Home = () => {
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
 
-    const upcoming = tournamentsData.filter((tournament) => tournament.date > today);
+    const upcoming = tournamentsData.filter((tournament) => tournament.date >= today);
     setUpcomingTournaments(upcoming);
   }, []);
 
