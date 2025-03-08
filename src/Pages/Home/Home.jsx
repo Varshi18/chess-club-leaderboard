@@ -18,7 +18,7 @@ const Home = () => {
         Join a growing community of chess enthusiasts! Participate in tournaments, improve your skills, and compete with fellow students.
       </p>
       <a
-        href="https://www.chess.com/club/iit-dharwad-chess-club"
+        href="https://www.chess.com/club/iit-dharwad-chess"
         className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg text-lg transition"
       >
         Join the Club
