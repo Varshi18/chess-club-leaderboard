@@ -34,8 +34,8 @@ const Navbar = () => {
                 to={path}
                 className={`relative px-4 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 ${
                   isActive(path)
-                    ? 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400'
+                    ? 'text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
                 }`}
               >
                 {label}
@@ -84,7 +84,7 @@ const Navbar = () => {
                   className={`block px-6 py-3 font-medium transition-all duration-300 ${
                     isActive(path)
                       ? 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                      : 'text-gray-700 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {label}

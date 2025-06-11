@@ -71,9 +71,15 @@ const AboutUs = () => {
                   <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm sm:text-base">
                     Be part of something bigger. Connect, compete, and grow with us.
                   </p>
-                  <button className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold rounded-xl hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 hover:shadow-lg">
-                    Get Started
-                  </button>
+                  <a
+                    href="https://chat.whatsapp.com/HP1pRgxIyIfIlwsoN7iMO3"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <button className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold rounded-xl hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 hover:shadow-lg">
+                      Get Started
+                    </button>
+                  </a>
                 </div>
               </div>
             </div>

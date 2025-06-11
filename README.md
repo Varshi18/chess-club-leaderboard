@@ -1,8 +1,23 @@
-# React + Vite
+# IIT Dharwad Chess Club
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Welcome to the official website of the **IIT Dharwad Chess Club**!
 
-Currently, two official plugins are available:
+Visit the website here:  
+👉 [iitdh-chess-club.vercel.app](https://iitdh-chess-club.vercel.app/)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## About
+
+This website serves as the central hub for all activities related to the Chess Club at IIT Dharwad. Stay updated with:
+
+- Upcoming tournaments  
+- Leaderboards  
+- Game highlights  
+- Club announcements
+
+## Contributing
+
+If you'd like to contribute or report an issue, feel free to fork the repository and open a pull request.
+
+---
+
+Made with ♟️ by the Chess Club at IIT Dharwad.
