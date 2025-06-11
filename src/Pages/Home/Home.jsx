@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { tournamentsData } from "../Tournaments/Tournament";
+import { Link } from "react-router-dom";
 
 const Home = () => {
   const [upcomingTournaments, setUpcomingTournaments] = useState([]);
@@ -44,7 +45,7 @@ const Home = () => {
                 </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-blue-500 rounded-xl opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
               </a>
-              <a href="/about">
+              <Link to="/about">
                 <button className="group w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-bold rounded-xl text-base sm:text-lg border-2 border-gray-300 dark:border-gray-600 hover:border-yellow-400 dark:hover:border-yellow-400 transition-all duration-300 transform hover:scale-105 hover:shadow-xl">
                   <span className="flex items-center justify-center">
                     <svg className="w-5 h-5 mr-2 group-hover:animate-spin" fill="currentColor" viewBox="0 0 20 20">
@@ -53,7 +54,7 @@ const Home = () => {
                     Learn More
                   </span>
                 </button>
-              </a>
+              </Link>
             </div>
           </div>
         </div>
