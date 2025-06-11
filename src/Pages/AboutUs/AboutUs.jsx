@@ -118,9 +118,11 @@ const AboutUs = () => {
             <p className="text-lg sm:text-xl mb-6 opacity-90">
               Whether you're a beginner or a grandmaster, there's a place for you in our chess family.
             </p>
-            <button className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white text-gray-900 font-bold rounded-xl hover:bg-gray-100 transition-all duration-300 transform hover:scale-105 hover:shadow-lg">
-              Join Us Today
-            </button>
+            <a href="https://www.chess.com/club/iit-dharwad-chess">
+              <button className="w-full sm:w-auto px-6 sm:px-8 py-3 sm:py-4 bg-white text-gray-900 font-bold rounded-xl hover:bg-gray-100 transition-all duration-300 transform hover:scale-105 hover:shadow-lg">
+                Join Us Today
+              </button>
+            </a>
           </div>
         </div>
       </div>
