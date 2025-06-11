@@ -10,6 +10,11 @@ export const tournamentsData = [
 
 const TournamentPage = () => {
   const [tournaments, setTournaments] = useState({ upcoming: [], current: [], past: [] });
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    setTimeout(() => setIsVisible(true), 100);
+  }, []);
 
   useEffect(() => {
     const updateTournaments = () => {
@@ -40,40 +45,131 @@ const TournamentPage = () => {
     };
 
     updateTournaments();
-    const interval = setInterval(updateTournaments, 60000); // Update every minute
+    const interval = setInterval(updateTournaments, 60000);
 
     return () => clearInterval(interval);
   }, []);
 
-  return (
-    <div className="flex flex-col items-center mt-10 py-10 px-6 bg-gray-900 min-h-screen text-white">
-      <h2 className="text-4xl font-bold mb-8">Tournaments</h2>
+  const getSectionIcon = (title) => {
+    if (title.includes('Upcoming')) return '🚀';
+    if (title.includes('Current')) return '⚡';
+    if (title.includes('Past')) return '🏆';
+    return '📅';
+  };
 
-      <Section title="Upcoming Tournaments" data={tournaments.upcoming} />
-      <Section title="Current Tournaments" data={tournaments.current} />
-      <Section title="Past Tournaments" data={tournaments.past} />
+  const getSectionColor = (title) => {
+    if (title.includes('Upcoming')) return 'from-blue-500 to-purple-600';
+    if (title.includes('Current')) return 'from-green-500 to-emerald-600';
+    if (title.includes('Past')) return 'from-gray-500 to-gray-600';
+    return 'from-yellow-500 to-orange-600';
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 pt-20 transition-all duration-500">
+      <div className="max-w-6xl mx-auto px-6 py-12">
+        <div className={`text-center mb-16 transform transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`}>
+          <h1 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">
+            Tournaments
+          </h1>
+          <div className="w-24 h-1 bg-gradient-to-r from-yellow-400 to-orange-500 mx-auto rounded-full mb-6"></div>
+          <p className="text-xl text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
+            Compete in exciting chess tournaments and showcase your skills against fellow players
+          </p>
+        </div>
+
+        <div className="space-y-12">
+          <Section 
+            title="Upcoming Tournaments" 
+            data={tournaments.upcoming} 
+            icon={getSectionIcon('Upcoming')}
+            colorClass={getSectionColor('Upcoming')}
+            isVisible={isVisible}
+            delay={200}
+          />
+          <Section 
+            title="Current Tournaments" 
+            data={tournaments.current} 
+            icon={getSectionIcon('Current')}
+            colorClass={getSectionColor('Current')}
+            isVisible={isVisible}
+            delay={400}
+          />
+          <Section 
+            title="Past Tournaments" 
+            data={tournaments.past} 
+            icon={getSectionIcon('Past')}
+            colorClass={getSectionColor('Past')}
+            isVisible={isVisible}
+            delay={600}
+          />
+        </div>
+      </div>
     </div>
   );
 };
 
-const Section = ({ title, data }) => (
-  <div className="w-full max-w-3xl mb-8">
-    <h3 className="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">
-      {title}
-    </h3>
-    {data.length > 0 ? (
-      <ul className="space-y-3">
-        {data.map((tournament, index) => (
-          <li key={index}>
-            <a href={tournament.link} className="block bg-gray-800 p-3 rounded-lg hover:bg-gray-700 transition">
-              {tournament.name} - {tournament.date}
-            </a>
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <p className="text-gray-400">No tournaments available.</p>
-    )}
+const Section = ({ title, data, icon, colorClass, isVisible, delay }) => (
+  <div className={`transform transition-all duration-1000 ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0'}`} style={{ transitionDelay: `${delay}ms` }}>
+    <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-700">
+      <div className={`bg-gradient-to-r ${colorClass} p-6`}>
+        <h2 className="text-3xl font-bold text-white flex items-center">
+          <span className="text-4xl mr-4 animate-bounce-slow">{icon}</span>
+          {title}
+        </h2>
+      </div>
+      
+      <div className="p-6">
+        {data.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {data.map((tournament, index) => (
+              <div
+                key={index}
+                className={`group bg-gray-50 dark:bg-gray-700 rounded-2xl p-6 hover:shadow-xl transition-all duration-500 transform hover:scale-105 hover:-translate-y-2 border border-gray-200 dark:border-gray-600 animate-fade-in-up`}
+                style={{ animationDelay: `${delay + index * 100}ms` }}
+              >
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex-1">
+                    <h3 className="font-bold text-lg text-gray-900 dark:text-white group-hover:text-yellow-500 transition-colors duration-300 mb-2">
+                      {tournament.name}
+                    </h3>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
+                      </svg>
+                      {tournament.date}
+                    </div>
+                  </div>
+                  <div className="w-12 h-12 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center group-hover:animate-pulse">
+                    <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                
+                <a
+                  href={tournament.link}
+                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 group-hover:shadow-lg"
+                >
+                  <span>View Tournament</span>
+                  <svg className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform duration-300" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </a>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <div className="w-24 h-24 bg-gray-200 dark:bg-gray-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
+              <svg className="w-12 h-12 text-gray-400 dark:text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <p className="text-xl text-gray-600 dark:text-gray-400">No tournaments available.</p>
+          </div>
+        )}
+      </div>
+    </div>
   </div>
 );
 
