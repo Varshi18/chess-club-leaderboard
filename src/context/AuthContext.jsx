@@ -12,7 +12,7 @@ export const useAuth = () => {
 };
 
 // Configure axios defaults
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+const API_BASE_URL = import.meta.env.CLIENT_URL || '/api';
 axios.defaults.baseURL = API_BASE_URL;
 
 export const AuthProvider = ({ children }) => {
