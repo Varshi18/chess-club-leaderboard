@@ -20,6 +20,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(localStorage.getItem('token'));
 
+  // Set axios default authorization header
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -28,11 +29,12 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
+  // Check if user is authenticated on app load
   useEffect(() => {
     const checkAuth = async () => {
       if (token) {
         try {
-          const response = await axios.get('/api/auth/me'); // Ensure /api prefix
+          const response = await axios.get('/auth/me');
           if (response.data.success) {
             setUser(response.data.user);
           } else {
@@ -53,7 +55,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/api/auth/login', { email, password }); // Add /api prefix
+      const response = await axios.post('/auth/login', { email, password });
+      
       if (response.data.success) {
         const { token: newToken, user: userData } = response.data;
         localStorage.setItem('token', newToken);
@@ -61,6 +64,7 @@ export const AuthProvider = ({ children }) => {
         setUser(userData);
         return { success: true, message: response.data.message };
       }
+      
       return { success: false, message: response.data.message };
     } catch (error) {
       const message = error.response?.data?.message || 'Login failed. Please try again.';
@@ -70,7 +74,8 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await axios.post('/api/auth/register', userData); // Add /api prefix
+      const response = await axios.post('/auth/register', userData);
+      
       if (response.data.success) {
         const { token: newToken, user: newUser } = response.data;
         localStorage.setItem('token', newToken);
@@ -78,6 +83,7 @@ export const AuthProvider = ({ children }) => {
         setUser(newUser);
         return { success: true, message: response.data.message };
       }
+      
       return { success: false, message: response.data.message };
     } catch (error) {
       const message = error.response?.data?.message || 'Registration failed. Please try again.';
