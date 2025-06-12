@@ -27,7 +27,8 @@ const Navbar = () => {
             { path: '/', label: 'Home' },
             { path: '/about', label: 'About Us' },
             { path: '/leaderboard', label: 'Leaderboard' },
-            { path: '/tournaments', label: 'Tournaments' }
+            { path: '/tournaments', label: 'Tournaments' },
+            { path: '/play', label: 'Play Chess' }
           ].map(({ path, label }) => (
             <li key={path}>
               <Link
@@ -75,7 +76,8 @@ const Navbar = () => {
               { path: '/', label: 'Home' },
               { path: '/about', label: 'About Us' },
               { path: '/leaderboard', label: 'Leaderboard' },
-              { path: '/tournaments', label: 'Tournaments' }
+              { path: '/tournaments', label: 'Tournaments' },
+              { path: '/play', label: 'Play Chess' }
             ].map(({ path, label }) => (
               <li key={path}>
                 <Link

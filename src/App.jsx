@@ -6,6 +6,7 @@ import Home from './Pages/Home/Home';
 import AboutUs from './Pages/AboutUs/AboutUs';
 import Leaderboard from './Pages/Leaderboard/Leaderboard';
 import TournamentPage from './Pages/Tournaments/Tournament';
+import PlayChess from './Pages/PlayChess/PlayChess';
 import './App.css';
 
 const App = () => {
@@ -19,6 +20,7 @@ const App = () => {
             <Route path="/about" element={<AboutUs />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
             <Route path="/tournaments" element={<TournamentPage />} />
+            <Route path="/play" element={<PlayChess />} />
           </Routes>
         </div>
       </Router>
