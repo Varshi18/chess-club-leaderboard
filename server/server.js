@@ -65,7 +65,7 @@ const startServer = async () => {
   await connectDB();
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Client URL: ${process.env.CLIENT_URL || "http://localhost:5173"}`);
+    console.log(`Client URL: ${process.env.CLIENT_URL || "https://iitdh-chess-club.vercel.app"}`);
   });
 };
 
