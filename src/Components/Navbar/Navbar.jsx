@@ -1,23 +1,32 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import ThemeToggle from '../ThemeToggle/ThemeToggle';
 
 const Navbar = () => {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { user, logout, isAuthenticated } = useAuth();
 
   const isActive = (path) => location.pathname === path;
 
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
 
+  const handleLogout = () => {
+    logout();
+    setIsMenuOpen(false);
+  };
+
   return (
     <nav className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-md fixed top-0 left-0 w-full flex justify-between items-center py-4 px-4 sm:px-8 shadow-lg border-b border-gray-200 dark:border-gray-700 z-50 transition-all duration-300">
       <div className="text-gray-900 dark:text-white text-lg sm:text-xl font-bold tracking-wide hover:scale-105 transform transition-all duration-300 cursor-pointer">
-        <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
-          IIT Dharwad
-        </span>
-        <span className="ml-2 hidden sm:inline">Chess Club</span>
-        <span className="ml-2 sm:hidden">Chess</span>
+        <Link to="/">
+          <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
+            IIT Dharwad
+          </span>
+          <span className="ml-2 hidden sm:inline">Chess Club</span>
+          <span className="ml-2 sm:hidden">Chess</span>
+        </Link>
       </div>
       
       {/* Desktop Menu */}
@@ -28,7 +37,7 @@ const Navbar = () => {
             { path: '/about', label: 'About Us' },
             { path: '/leaderboard', label: 'Leaderboard' },
             { path: '/tournaments', label: 'Tournaments' },
-            { path: '/play', label: 'Play Chess' }
+            ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : [])
           ].map(({ path, label }) => (
             <li key={path}>
               <Link
@@ -47,7 +56,39 @@ const Navbar = () => {
             </li>
           ))}
         </ul>
-        <ThemeToggle />
+        
+        {/* User Menu */}
+        <div className="flex items-center space-x-4">
+          {isAuthenticated ? (
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-gray-700 dark:text-gray-300">
+                Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-3">
+              <Link
+                to="/login"
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300"
+              >
+                Login
+              </Link>
+              <Link
+                to="/register"
+                className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105"
+              >
+                Sign Up
+              </Link>
+            </div>
+          )}
+          <ThemeToggle />
+        </div>
       </div>
 
       {/* Mobile Menu Button */}
@@ -77,7 +118,7 @@ const Navbar = () => {
               { path: '/about', label: 'About Us' },
               { path: '/leaderboard', label: 'Leaderboard' },
               { path: '/tournaments', label: 'Tournaments' },
-              { path: '/play', label: 'Play Chess' }
+              ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : [])
             ].map(({ path, label }) => (
               <li key={path}>
                 <Link
@@ -93,6 +134,40 @@ const Navbar = () => {
                 </Link>
               </li>
             ))}
+            
+            {/* Mobile Auth Menu */}
+            <div className="border-t border-gray-200 dark:border-gray-700 mt-4 pt-4 px-6">
+              {isAuthenticated ? (
+                <div className="space-y-3">
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                  >
+                    Logout
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Link
+                    to="/login"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="block w-full px-4 py-2 text-center text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300"
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    to="/register"
+                    onClick={() => setIsMenuOpen(false)}
+                    className="block w-full px-4 py-2 text-center bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300"
+                  >
+                    Sign Up
+                  </Link>
+                </div>
+              )}
+            </div>
           </ul>
         </div>
       )}
