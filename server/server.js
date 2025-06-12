@@ -23,14 +23,15 @@ app.use(
       if (!origin) return callback(null, true);
       // Check if the request origin is in the allowedOrigins array
       if (allowedOrigins.includes(origin)) {
-        callback(null, origin); // Return the specific origin, not 'true'
+        callback(null, origin); // Return the specific origin
       } else {
+        console.log(`Blocked CORS request from origin: ${origin}`); // Debug log
         callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true, // Allow credentials (cookies, etc.)
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Explicitly allow methods
-    allowedHeaders: ["Content-Type", "Authorization"], // Allow specific headers
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Allow necessary methods
+    allowedHeaders: ["Content-Type", "Authorization"], // Allow necessary headers
   })
 );
 
