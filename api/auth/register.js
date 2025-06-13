@@ -1,5 +1,5 @@
-import clientPromise from '../lib/mongodb.js';
-import { hashPassword, generateToken, getUserStats } from '../lib/auth.js';
+const clientPromise = require("../../lib/mongodb");
+const { hashPassword, generateToken, getUserStats } = require("../../lib/auth");
 
 export default async function handler(req, res) {
   // Enable CORS
