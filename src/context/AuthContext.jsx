@@ -11,8 +11,8 @@ export const useAuth = () => {
   return context;
 };
 
-// Configure axios defaults
-const API_BASE_URL = import.meta.env.CLIENT_URL || '/api';
+// Configure axios defaults for Vercel deployment
+const API_BASE_URL = '/api';
 axios.defaults.baseURL = API_BASE_URL;
 
 export const AuthProvider = ({ children }) => {
