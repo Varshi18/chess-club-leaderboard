@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     // Connect to MongoDB
     const client = await clientPromise;
-    const db = client.db('chess_club');
+    const db = client.db('chess-club');
     const users = db.collection('users');
 
     // Find user by ID
