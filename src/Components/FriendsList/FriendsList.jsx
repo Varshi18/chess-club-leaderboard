@@ -68,7 +68,7 @@ const FriendsList = ({ onChallengePlayer }) => {
       console.log('✅ Search API Response:', response.data);
 
       if (response.data.success) {
-        setSearchResults(response.data.users.filter(u => u._id !== user._id));
+        setSearchResults(response.data.users.filter(u => u.id !== user.id));
       } else {
         console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
         setSearchResults([]);
@@ -100,7 +100,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         // Update UI to show request sent
         setSearchResults(prev => 
           prev.map(user => 
-            user._id === userId 
+            user.id === userId 
               ? { ...user, friendRequestSent: true }
               : user
           )
@@ -179,7 +179,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               {friends.length > 0 ? (
                 friends.map((friend) => (
                   <motion.div
-                    key={friend._id}
+                    key={friend.id}
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -248,7 +248,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               ) : searchResults.length > 0 ? (
                 searchResults.map((user) => (
                   <motion.div
-                    key={user._id}
+                    key={user.id}
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -263,7 +263,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                       </div>
                     </div>
                     <motion.button
-                      onClick={() => sendFriendRequest(user._id)}
+                      onClick={() => sendFriendRequest(user.id)}
                       disabled={user.friendRequestSent}
                       className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-300 ${
                         user.friendRequestSent
