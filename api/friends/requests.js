@@ -8,8 +8,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
   if (req.method !== 'GET') {
@@ -19,53 +18,56 @@ export default async function handler(req, res) {
   try {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
-
     if (!token) {
       return res.status(401).json({ success: false, message: 'Access token required' });
     }
 
     const decoded = verifyToken(token);
-    if (!decoded) {
+    if (!decoded || !ObjectId.isValid(decoded.userId)) {
       return res.status(403).json({ success: false, message: 'Invalid or expired token' });
     }
+
+    const userObjectId = new ObjectId(decoded.userId);
 
     const client = await clientPromise;
     const db = client.db('chess-club');
     const friendships = db.collection('friendships');
     const users = db.collection('users');
 
-    // Fetch all friend requests received by the current user
+    // Find all pending requests *received* by the user
     const pendingRequests = await friendships.find({
-      friendId: new ObjectId(decoded.userId),
-      status: 'pending'
+      friendId: userObjectId,
+      status: 'pending',
     }).toArray();
 
-    const senderIds = pendingRequests.map(req => req.userId);
-    const senders = await users.find({
-      _id: { $in: senderIds }
-    }).project({ password: 0 }).toArray();
+    const senderIds = pendingRequests.map((r) => r.userId);
+    const senders = await users
+      .find({ _id: { $in: senderIds } })
+      .project({ password: 0 })
+      .toArray();
 
+    // Map senderId to user data
     const sendersMap = Object.fromEntries(
-      senders.map(sender => [sender._id.toString(), sender])
+      senders.map((u) => [u._id.toString(), u])
     );
 
-    const requests = pendingRequests.map(req => ({
-      _id: req._id.toString(),
+    const formattedRequests = pendingRequests.map((r) => ({
+      _id: r._id.toString(),
       sender: {
-        id: req.userId.toString(),
-        username: sendersMap[req.userId.toString()]?.username || 'Unknown',
-        chessRating: sendersMap[req.userId.toString()]?.chessRating ?? 'N/A'
+        id: r.userId.toString(),
+        username: sendersMap[r.userId.toString()]?.username || 'Unknown',
+        chessRating: sendersMap[r.userId.toString()]?.chessRating ?? 'N/A',
       },
-      createdAt: req.createdAt
+      createdAt: r.createdAt,
     }));
 
-    return res.json({ success: true, requests });
+    return res.json({ success: true, requests: formattedRequests });
 
   } catch (error) {
     console.error('Error fetching friend requests:', error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch friend requests'
+      message: 'Failed to fetch friend requests',
     });
   }
 }
