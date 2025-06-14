@@ -49,7 +49,7 @@ const searchUsers = async (query) => {
     console.log('✅ Search API Response:', response.data);
 
     if (response.data.success) {
-      setSearchResults(response.data.users.filter(u => u.id !== user.id));
+      setSearchResults(response.data.users.filter(u => u._id !== user._id));
     } else {
       console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
     }
