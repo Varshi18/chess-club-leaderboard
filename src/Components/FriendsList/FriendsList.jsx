@@ -248,7 +248,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               ) : searchResults.length > 0 ? (
                 searchResults.map((user) => (
                   <motion.div
-                    key={user.id}
+                    key={user._id}
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -263,7 +263,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                       </div>
                     </div>
                     <motion.button
-                      onClick={() => sendFriendRequest(user.id)}
+                      onClick={() => sendFriendRequest(user._id)}
                       disabled={user.friendRequestSent}
                       className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-300 ${
                         user.friendRequestSent
