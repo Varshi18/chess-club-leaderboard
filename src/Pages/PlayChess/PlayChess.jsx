@@ -56,7 +56,7 @@ const PlayChess = () => {
   ];
 
   return (
-   <div className="min-h-screen relative overflow-hidden">
+   <div className="min-h-screen relative overflow-hidden pt-20">
       <div className="fixed inset-0 z-0">
         <ThreeBackground />
       </div>

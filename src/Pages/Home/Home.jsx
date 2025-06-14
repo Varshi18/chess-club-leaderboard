@@ -19,7 +19,6 @@ const Home = () => {
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Three.js Background - positioned absolutely with lowest z-index */}
       <div className="fixed inset-0 z-0">
         <ThreeBackground />
       </div>
