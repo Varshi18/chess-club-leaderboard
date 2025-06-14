@@ -36,7 +36,8 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   setLoading(true);
   try {
-    const token = localStorage.getItem('token'); // Or use from context if available
+    const token = localStorage.getItem('token');
+    console.log('Sending token:', token);    
     const response = await axios.get(`/api/users/search?q=${encodeURIComponent(query)}`, {
       headers: {
         Authorization: `Bearer ${token}`

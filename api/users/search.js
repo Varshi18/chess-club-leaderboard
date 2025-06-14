@@ -27,12 +27,27 @@ export default async function handler(req, res) {
         .json({ success: false, message: "Access token required" });
     }
 
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Invalid or expired token" });
-    }
+    let decoded;
+try {
+  decoded = verifyToken(token);
+} catch (err) {
+  console.error('Token verification failed:', err.message);
+  return res.status(403).json({
+    success: false,
+    message: 'Invalid or expired token'
+  });
+}
+
+if (!decoded) {
+  return res.status(403).json({
+    success: false,
+    message: 'Token verification failed'
+  });
+}
+console.log('Token received:', token);
+console.log('Decoded user:', decoded);
+
+
 
     const { q } = req.query;
     if (!q || q.trim().length < 2) {
