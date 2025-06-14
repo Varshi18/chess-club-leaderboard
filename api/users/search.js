@@ -1,8 +1,7 @@
-export default function handler(req, res) {
+export default async function handler(req, res) {
   const { q } = req.query;
-
-  res.status(200).json({
-    success: true,
-    users: [{ username: "Varshith", rating: 2000, query: q || "none" }],
-  });
+  // Replace with actual DB query
+  const users = [{ _id: '1', username: 'Varshith', chessRating: 2000 }];
+  const filtered = users.filter(u => u.username.toLowerCase().includes(q.toLowerCase()));
+  res.status(200).json({ success: true, users: filtered });
 }
