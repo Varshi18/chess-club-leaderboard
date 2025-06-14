@@ -67,9 +67,11 @@ const TournamentPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 pt-20 transition-all duration-500 relative overflow-hidden">
-      <ThreeBackground />
-      
+    <div className="min-h-screen relative overflow-hidden">
+      <div className="fixed inset-0 z-0">
+        <ThreeBackground />
+      </div>
+      <div className="relative z-10 min-h-screen bg-white/20 dark:bg-black/20 backdrop-blur-[2px] transition-all duration-500">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 relative z-10">
         <motion.div 
           className="text-center mb-12 sm:mb-16"
@@ -127,6 +129,7 @@ const TournamentPage = () => {
           />
         </div>
       </div>
+    </div>
     </div>
   );
 };
