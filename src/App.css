@@ -1,10 +1,18 @@
+/* Import Google Font */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
 /* General styles */
+* {
+  box-sizing: border-box;
+}
+
 body {
   font-family: 'Poppins', sans-serif;
   margin: 0;
   padding: 0;
   background-color: #121212; /* Dark theme */
   color: white;
+  line-height: 1.6;
 }
 
 /* Navbar Styling */
@@ -19,6 +27,12 @@ nav {
   align-items: center;
   box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2);
   z-index: 1000;
+}
+
+.nav-logo {
+  font-size: 24px;
+  font-weight: bold;
+  color: #ffcc00;
 }
 
 nav ul {
@@ -38,22 +52,24 @@ nav ul li a {
   font-size: 18px;
   padding: 10px 15px;
   transition: all 0.3s ease-in-out;
+  border-radius: 5px;
 }
 
 nav ul li a:hover {
   background: #ffcc00; /* Gold hover */
   color: black;
-  border-radius: 5px;
 }
 
 /* Homepage Styling */
 .content-container {
   text-align: center;
   padding: 80px 20px;
+  margin-top: 70px; /* Account for fixed navbar */
 }
 
 .hero {
-  background: url('chess_background.jpg') no-repeat center center/cover;
+  background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), 
+              url('chess_background.jpg') no-repeat center center/cover;
   height: 500px;
   display: flex;
   flex-direction: column;
@@ -61,10 +77,22 @@ nav ul li a:hover {
   align-items: center;
   color: white;
   text-align: center;
-  font-size: 36px;
+  border-radius: 15px;
+  margin: 20px auto;
+  max-width: 1200px;
+}
+
+.hero h1 {
+  font-size: 48px;
   font-weight: bold;
   text-shadow: 2px 2px 10px rgba(0, 0, 0, 0.8);
-  margin-top: 50px; /* Adjust for navbar height */
+  margin-bottom: 20px;
+}
+
+.hero p {
+  font-size: 20px;
+  margin-bottom: 30px;
+  max-width: 600px;
 }
 
 .hero-button {
@@ -74,22 +102,30 @@ nav ul li a:hover {
   font-size: 20px;
   border: none;
   cursor: pointer;
-  margin-top: 20px;
-  transition: all 0.3s ease-in-out;
   font-weight: bold;
   border-radius: 8px;
+  transition: all 0.3s ease-in-out;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 .hero-button:hover {
   background: white;
   color: black;
-  border: 2px solid #ffcc00;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(255, 204, 0, 0.4);
 }
 
 /* Leaderboard Styling */
 .leaderboard-container {
   padding: 80px 20px;
   text-align: center;
+  margin-top: 70px; /* Account for fixed navbar */
+}
+
+.leaderboard-title {
+  font-size: 36px;
+  margin-bottom: 40px;
+  color: #ffcc00;
 }
 
 .leaderboard-table {
@@ -108,30 +144,93 @@ nav ul li a:hover {
 .leaderboard-table td {
   padding: 15px;
   border-bottom: 1px solid #444;
+  text-align: left;
 }
 
 .leaderboard-table th {
   background: #333;
+  font-weight: 600;
+  color: #ffcc00;
 }
 
 .leaderboard-table tr:hover {
   background: #444;
 }
 
+.leaderboard-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Rank styling */
+.rank-1 { color: #ffd700; font-weight: bold; }
+.rank-2 { color: #c0c0c0; font-weight: bold; }
+.rank-3 { color: #cd7f32; font-weight: bold; }
+
 /* Responsive Design */
 @media (max-width: 768px) {
   nav {
     flex-direction: column;
     align-items: center;
+    padding: 10px;
+  }
+
+  .nav-logo {
+    margin-bottom: 10px;
   }
 
   nav ul {
     flex-direction: column;
     text-align: center;
-    padding-top: 10px;
   }
 
   nav ul li {
     margin: 5px 0;
+  }
+
+  .hero h1 {
+    font-size: 32px;
+  }
+
+  .hero p {
+    font-size: 16px;
+    padding: 0 20px;
+  }
+
+  .hero-button {
+    font-size: 18px;
+    padding: 12px 24px;
+  }
+
+  .leaderboard-title {
+    font-size: 28px;
+  }
+
+  .leaderboard-table {
+    font-size: 14px;
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 10px;
+  }
+
+  .content-container,
+  .leaderboard-container {
+    margin-top: 120px; /* More space for mobile navbar */
+  }
+}
+
+@media (max-width: 480px) {
+  .hero {
+    height: 400px;
+  }
+
+  .hero h1 {
+    font-size: 28px;
+  }
+
+  .leaderboard-table {
+    width: 95%;
+    font-size: 12px;
   }
 }

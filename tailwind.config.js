@@ -50,4 +50,3 @@ export default {
   },
   plugins: [],
 }
-</tailwind.config.js>
