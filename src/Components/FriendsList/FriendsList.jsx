@@ -74,7 +74,7 @@ const searchUsers = async (query) => {
         // Update UI to show request sent
         setSearchResults(prev => 
           prev.map(user => 
-            user.id === userId 
+            user._id === userId 
               ? { ...user, friendRequestSent: true }
               : user
           )
@@ -233,7 +233,7 @@ const searchUsers = async (query) => {
                       </div>
                       <div>
                         <div className="font-semibold text-gray-900 dark:text-white">{user.username}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? "N/A"}</div>
                       </div>
                     </div>
                     <motion.button
