@@ -3,15 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
-// Configure axios for Vercel API routes
 const api = axios.create({
-  baseURL: '', // Empty for same-origin requests
+  baseURL: '',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Add token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -24,12 +22,14 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [friends, setFriends] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [friendRequests, setFriendRequests] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('friends');
   const { user } = useAuth();
 
   useEffect(() => {
     fetchFriends();
+    fetchFriendRequests();
   }, []);
 
   const fetchFriends = async () => {
@@ -40,18 +40,21 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching friends:', error);
-      // Add more specific error handling
-      if (error.response) {
-        console.error('Server error:', error.response.data);
-      } else if (error.request) {
-        console.error('Network error - no response received');
+    }
+  };
+
+  const fetchFriendRequests = async () => {
+    try {
+      const response = await api.get('/api/friends/requests');
+      if (response.data.success) {
+        setFriendRequests(response.data.requests);
       }
+    } catch (error) {
+      console.error('Error fetching friend requests:', error);
     }
   };
 
   const searchUsers = async (query) => {
-    console.log("🔍 Search query:", query);
-
     if (!query.trim()) {
       setSearchResults([]);
       return;
@@ -60,34 +63,14 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
 
     try {
-      const searchUrl = `/api/users/search?q=${encodeURIComponent(query)}`;
-      console.log("📡 Making request to:", searchUrl);
-      
-      const response = await api.get(searchUrl);
-      
-      console.log('✅ Search API Response:', response.data);
-
+      const response = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
       if (response.data.success) {
-        setSearchResults(response.data.users.filter(u => u.id !== user.id));
+        setSearchResults(response.data.users.filter((u) => u.id !== user.id));
       } else {
-        console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
         setSearchResults([]);
       }
-
-    } catch (error) {
-      console.error('❌ Search error:', error);
+    } catch {
       setSearchResults([]);
-      
-      if (error.response) {
-        console.error('Server responded with error:', error.response.status, error.response.data);
-        if (typeof error.response.data === 'string' && error.response.data.includes('<!DOCTYPE html>')) {
-          console.error('🚨 You\'re getting HTML instead of JSON - make sure you\'re running "vercel dev" not "npm start"');
-        }
-      } else if (error.request) {
-        console.error('No response received from server');
-      } else {
-        console.error('Request setup error:', error.message);
-      }
     } finally {
       setLoading(false);
     }
@@ -97,12 +80,9 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.post('/api/friends/request', { userId });
       if (response.data.success) {
-        // Update UI to show request sent
-        setSearchResults(prev => 
-          prev.map(user => 
-            user.id === userId 
-              ? { ...user, friendRequestSent: true }
-              : user
+        setSearchResults((prev) =>
+          prev.map((user) =>
+            user.id === userId ? { ...user, friendRequestSent: true } : user
           )
         );
       }
@@ -116,6 +96,7 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.post('/api/friends/accept', { requestId });
       if (response.data.success) {
         fetchFriends();
+        fetchFriendRequests();
       }
     } catch (error) {
       console.error('Error accepting friend request:', error);
@@ -126,7 +107,6 @@ const FriendsList = ({ onChallengePlayer }) => {
     const now = new Date();
     const lastSeenDate = new Date(lastSeen);
     const diffMinutes = (now - lastSeenDate) / (1000 * 60);
-    
     if (diffMinutes < 5) return 'online';
     if (diffMinutes < 30) return 'away';
     return 'offline';
@@ -134,9 +114,12 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'online': return 'bg-green-500';
-      case 'away': return 'bg-yellow-500';
-      default: return 'bg-gray-500';
+      case 'online':
+        return 'bg-green-500';
+      case 'away':
+        return 'bg-yellow-500';
+      default:
+        return 'bg-gray-500';
     }
   };
 
@@ -163,10 +146,20 @@ const FriendsList = ({ onChallengePlayer }) => {
         >
           Add Friends
         </button>
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+            activeTab === 'requests'
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+          }`}
+        >
+          Requests ({friendRequests.length})
+        </button>
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'friends' ? (
+        {activeTab === 'friends' && (
           <motion.div
             key="friends"
             initial={{ opacity: 0, x: -20 }}
@@ -218,7 +211,9 @@ const FriendsList = ({ onChallengePlayer }) => {
               )}
             </div>
           </motion.div>
-        ) : (
+        )}
+
+        {activeTab === 'search' && (
           <motion.div
             key="search"
             initial={{ opacity: 0, x: 20 }}
@@ -239,7 +234,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
-            
+
             <div className="space-y-3 max-h-80 overflow-y-auto">
               {loading ? (
                 <div className="text-center py-4">
@@ -259,7 +254,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                       </div>
                       <div>
                         <div className="font-semibold text-gray-900 dark:text-white">{user.username}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? "N/A"}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
                       </div>
                     </div>
                     <motion.button
@@ -286,6 +281,53 @@ const FriendsList = ({ onChallengePlayer }) => {
                 <div className="text-center py-8">
                   <div className="text-4xl mb-4">🎯</div>
                   <p className="text-gray-500 dark:text-gray-400">Search for players to add as friends</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'requests' && (
+          <motion.div
+            key="requests"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Friend Requests</h3>
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {friendRequests.length > 0 ? (
+                friendRequests.map((request) => (
+                  <motion.div
+                    key={request._id}
+                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold">
+                        {request.sender.username[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-900 dark:text-white">{request.sender.username}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
+                      </div>
+                    </div>
+                    <motion.button
+                      onClick={() => acceptFriendRequest(request._id)}
+                      className="px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      Accept
+                    </motion.button>
+                  </motion.div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <div className="text-4xl mb-4">📭</div>
+                  <p className="text-gray-500 dark:text-gray-400">No incoming friend requests</p>
                 </div>
               )}
             </div>
