@@ -26,8 +26,8 @@ const FriendsList = ({ onChallengePlayer }) => {
     }
   };
 
-  const searchUsers = async (query) => {
-  console.log("Search query:", query); // Debug log
+const searchUsers = async (query) => {
+  console.log("🔍 Search query:", query);
 
   if (!query.trim()) {
     setSearchResults([]);
@@ -35,28 +35,38 @@ const FriendsList = ({ onChallengePlayer }) => {
   }
 
   setLoading(true);
+
   try {
     const token = localStorage.getItem('token');
-    console.log('Sending token:', token);    
+    console.log('📨 Sending token:', token);
+
     const response = await axios.get(`/api/users/search?q=${encodeURIComponent(query)}`, {
       headers: {
         Authorization: `Bearer ${token}`
       }
     });
 
+    console.log('✅ Search API Response:', response.data);
+
     if (response.data.success) {
       setSearchResults(response.data.users.filter(u => u.id !== user.id));
     } else {
-      console.warn("Search failed:", response.data.message);
+      console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
     }
+
   } catch (error) {
-    console.error('Error searching users:', error);
+    // Improved error logging
+    if (error.response) {
+      console.error('❌ Server responded with an error:', error.response.data);
+    } else if (error.request) {
+      console.error('❌ No response received:', error.request);
+    } else {
+      console.error('❌ Request setup error:', error.message);
+    }
   } finally {
     setLoading(false);
   }
 };
-
-
   const sendFriendRequest = async (userId) => {
     try {
       const response = await axios.post('/api/friends/request', { userId });
