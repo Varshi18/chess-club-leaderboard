@@ -1,7 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../utils/api'; // Import the configured axios instance
+import axios from 'axios';
+
+// Configure axios for Vercel API routes
+const api = axios.create({
+  baseURL: '', // Empty for same-origin requests
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 const FriendsList = ({ onChallengePlayer }) => {
   const [friends, setFriends] = useState([]);
@@ -43,7 +60,10 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
 
     try {
-      const response = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
+      const searchUrl = `/api/users/search?q=${encodeURIComponent(query)}`;
+      console.log("📡 Making request to:", searchUrl);
+      
+      const response = await api.get(searchUrl);
       
       console.log('✅ Search API Response:', response.data);
 
@@ -58,9 +78,11 @@ const FriendsList = ({ onChallengePlayer }) => {
       console.error('❌ Search error:', error);
       setSearchResults([]);
       
-      // More detailed error logging
       if (error.response) {
         console.error('Server responded with error:', error.response.status, error.response.data);
+        if (typeof error.response.data === 'string' && error.response.data.includes('<!DOCTYPE html>')) {
+          console.error('🚨 You\'re getting HTML instead of JSON - make sure you\'re running "vercel dev" not "npm start"');
+        }
       } else if (error.request) {
         console.error('No response received from server');
       } else {
