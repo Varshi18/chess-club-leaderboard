@@ -300,7 +300,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               {friendRequests.length > 0 ? (
                 friendRequests.map((request) => (
                   <motion.div
-                    key={request._id}
+                    key={request.id}
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -315,7 +315,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                       </div>
                     </div>
                     <motion.button
-                      onClick={() => acceptFriendRequest(request._id)}
+                      onClick={() => acceptFriendRequest(request.id)}
                       className="px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
