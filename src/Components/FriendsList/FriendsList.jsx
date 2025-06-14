@@ -27,23 +27,34 @@ const FriendsList = ({ onChallengePlayer }) => {
   };
 
   const searchUsers = async (query) => {
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
+  console.log("Search query:", query); // Debug log
 
-    setLoading(true);
-    try {
-      const response = await axios.get(`/api/users/search?q=${encodeURIComponent(query)}`);
-      if (response.data.success) {
-        setSearchResults(response.data.users.filter(u => u.id !== user.id));
+  if (!query.trim()) {
+    setSearchResults([]);
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const token = localStorage.getItem('token'); // Or use from context if available
+    const response = await axios.get(`/api/users/search?q=${encodeURIComponent(query)}`, {
+      headers: {
+        Authorization: `Bearer ${token}`
       }
-    } catch (error) {
-      console.error('Error searching users:', error);
-    } finally {
-      setLoading(false);
+    });
+
+    if (response.data.success) {
+      setSearchResults(response.data.users.filter(u => u.id !== user.id));
+    } else {
+      console.warn("Search failed:", response.data.message);
     }
-  };
+  } catch (error) {
+    console.error('Error searching users:', error);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const sendFriendRequest = async (userId) => {
     try {

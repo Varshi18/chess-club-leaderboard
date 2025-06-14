@@ -50,37 +50,42 @@ export default async function handler(req, res) {
     const users = db.collection("users");
     const friendships = db.collection("friendships");
 
+    const searchResults = await users
+      .find({
+        username: { $regex: q.trim(), $options: "i" },
+        _id: { $ne: new ObjectId(decoded.id) }, // Exclude self
+      })
+      .project({ password: 0 })
+      .limit(10)
+      .toArray();
+
     const userId = new ObjectId(decoded.id);
-const userIds = searchResults.map(u => u._id);
 
-console.log("Searched user IDs:", userIds.map(id => id.toString()));
+    // Get IDs of users in search
+    const userIds = searchResults.map((u) => u._id);
 
-const existingFriendships = await db.collection('friendships').find({
-  from: userId,
-  to: { $in: userIds }
-}).toArray();
+    // Fetch existing requests or friendships
+    const existingFriendships = await friendships
+      .find({
+        from: userId,
+        to: { $in: userIds },
+      })
+      .toArray();
 
-console.log("Matching friendships:", existingFriendships);
+    const sentRequests = new Set(
+      existingFriendships
+        .filter((f) => f.status === "pending")
+        .map((f) => f.to.toString())
+    );
 
-const sentRequests = new Set(
-  existingFriendships
-    .filter(f => f.status === 'pending')
-    .map(f => f.to.toString())
-);
+    const usersWithData = searchResults.map((user) => ({
+      id: user._id.toString(),
+      username: user.username,
+      chessRating: user.chessRating,
+      friendRequestSent: sentRequests.has(user._id.toString()),
+    }));
 
-console.log("Pending request targets:", [...sentRequests]);
-
-const usersWithData = searchResults.map(user => ({
-  id: user._id.toString(),
-  username: user.username,
-  chessRating: user.chessRating,
-  friendRequestSent: sentRequests.has(user._id.toString())
-}));
-
-console.log("Final users response:", usersWithData);
-
-res.json({ success: true, users: usersWithData });
-
+    res.json({ success: true, users: usersWithData });
   } catch (error) {
     console.error("User search error:", error);
     res.status(500).json({ success: false, message: "Search failed" });
