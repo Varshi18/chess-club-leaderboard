@@ -179,7 +179,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               {friends.length > 0 ? (
                 friends.map((friend) => (
                   <motion.div
-                    key={friend.id}
+                    key={friend._id}
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
