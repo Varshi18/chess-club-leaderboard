@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import axios from 'axios';
+import api from '../../utils/api'; // Import the configured axios instance
 
 const FriendsList = ({ onChallengePlayer }) => {
   const [friends, setFriends] = useState([]);
@@ -17,59 +17,63 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const fetchFriends = async () => {
     try {
-      const response = await axios.get('/api/friends');
+      const response = await api.get('/api/friends');
       if (response.data.success) {
         setFriends(response.data.friends);
       }
     } catch (error) {
       console.error('Error fetching friends:', error);
+      // Add more specific error handling
+      if (error.response) {
+        console.error('Server error:', error.response.data);
+      } else if (error.request) {
+        console.error('Network error - no response received');
+      }
     }
   };
 
-const searchUsers = async (query) => {
-  console.log("🔍 Search query:", query);
+  const searchUsers = async (query) => {
+    console.log("🔍 Search query:", query);
 
-  if (!query.trim()) {
-    setSearchResults([]);
-    return;
-  }
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
 
-  setLoading(true);
+    setLoading(true);
 
-  try {
-    const token = localStorage.getItem('token');
-    console.log('📨 Sending token:', token);
+    try {
+      const response = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
+      
+      console.log('✅ Search API Response:', response.data);
 
-    const response = await axios.get(`/api/users/search?q=${encodeURIComponent(query)}`, {
-      headers: {
-        Authorization: `Bearer ${token}`
+      if (response.data.success) {
+        setSearchResults(response.data.users.filter(u => u._id !== user._id));
+      } else {
+        console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
+        setSearchResults([]);
       }
-    });
 
-    console.log('✅ Search API Response:', response.data);
-
-    if (response.data.success) {
-      setSearchResults(response.data.users.filter(u => u._id !== user._id));
-    } else {
-      console.warn("⚠️ Search failed with message:", response.data.message || 'No message from server');
+    } catch (error) {
+      console.error('❌ Search error:', error);
+      setSearchResults([]);
+      
+      // More detailed error logging
+      if (error.response) {
+        console.error('Server responded with error:', error.response.status, error.response.data);
+      } else if (error.request) {
+        console.error('No response received from server');
+      } else {
+        console.error('Request setup error:', error.message);
+      }
+    } finally {
+      setLoading(false);
     }
+  };
 
-  } catch (error) {
-    // Improved error logging
-    if (error.response) {
-      console.error('❌ Server responded with an error:', error.response.data);
-    } else if (error.request) {
-      console.error('❌ No response received:', error.request);
-    } else {
-      console.error('❌ Request setup error:', error.message);
-    }
-  } finally {
-    setLoading(false);
-  }
-};
   const sendFriendRequest = async (userId) => {
     try {
-      const response = await axios.post('/api/friends/request', { userId });
+      const response = await api.post('/api/friends/request', { userId });
       if (response.data.success) {
         // Update UI to show request sent
         setSearchResults(prev => 
@@ -87,7 +91,7 @@ const searchUsers = async (query) => {
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      const response = await axios.post('/api/friends/accept', { requestId });
+      const response = await api.post('/api/friends/accept', { requestId });
       if (response.data.success) {
         fetchFriends();
       }
