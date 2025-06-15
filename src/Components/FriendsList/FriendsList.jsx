@@ -45,7 +45,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const fetchFriendRequests = async () => {
     try {
-      const response = await api.get('/api/friends/requests');
+      const response = await api.get('/api/friends?type=requests');
       if (response.data.success) {
         setFriendRequests(response.data.requests);
       }
@@ -63,7 +63,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
 
     try {
-      const response = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`);
+      const response = await api.get(`/api/friends?q=${encodeURIComponent(query)}`);
       if (response.data.success) {
         setSearchResults(response.data.users.filter((u) => u.id !== user.id));
       } else {
@@ -79,7 +79,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const sendFriendRequest = async (userId) => {
     try {
-      const response = await api.post('/api/friends/request', { userId });
+      const response = await api.post('/api/friends', { userId });
       if (response.data.success) {
         setSearchResults((prev) =>
           prev.map((user) =>
@@ -94,7 +94,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      const response = await api.post('/api/friends/accept', { requestId });
+      const response = await api.patch('/api/friends', { requestId, action: 'accept' });
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
@@ -106,7 +106,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const rejectFriendRequest = async (requestId) => {
     try {
-      const response = await api.post('/api/friends/reject', { requestId });
+      const response = await api.patch('/api/friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
       }
