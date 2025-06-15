@@ -47,8 +47,31 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "GET") {
-      // Get all users
-      const allUsers = await users.find({}).project({ password: 0 }).toArray();
+      const { page = 1, limit = 20, search = "", sortBy = "createdAt", sortOrder = "desc" } = req.query;
+      
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const sort = { [sortBy]: sortOrder === "desc" ? -1 : 1 };
+      
+      let query = {};
+      if (search) {
+        query = {
+          $or: [
+            { username: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+            { fullName: { $regex: search, $options: "i" } }
+          ]
+        };
+      }
+
+      const [allUsers, totalCount] = await Promise.all([
+        users.find(query)
+          .project({ password: 0 })
+          .sort(sort)
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray(),
+        users.countDocuments(query)
+      ]);
 
       const formattedUsers = allUsers.map((user) => ({
         id: user._id.toString(),
@@ -60,15 +83,32 @@ export default async function handler(req, res) {
         isActive: user.isActive !== false,
         gamesPlayed: user.gamesPlayed || 0,
         gamesWon: user.gamesWon || 0,
+        gamesLost: user.gamesLost || 0,
+        gamesDrawn: user.gamesDrawn || 0,
+        winRate: user.gamesPlayed > 0 ? ((user.gamesWon / user.gamesPlayed) * 100).toFixed(1) : 0,
         createdAt: user.createdAt,
         lastLogin: user.lastLogin,
+        totalPlayTime: user.totalPlayTime || 0,
+        averageGameTime: user.averageGameTime || 0,
+        favoriteTimeControl: user.favoriteTimeControl || "Unknown",
+        highestRating: user.highestRating || user.chessRating || 1200,
+        lowestRating: user.lowestRating || user.chessRating || 1200
       }));
 
-      return res.json({ success: true, users: formattedUsers });
+      return res.json({ 
+        success: true, 
+        users: formattedUsers,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalCount / parseInt(limit)),
+          totalUsers: totalCount,
+          hasNext: skip + parseInt(limit) < totalCount,
+          hasPrev: parseInt(page) > 1
+        }
+      });
     }
 
     if (req.method === "PUT") {
-      // Update user
       const { userId, updates } = req.body;
 
       if (!userId || !updates) {
@@ -78,14 +118,25 @@ export default async function handler(req, res) {
         });
       }
 
-      const allowedUpdates = ["role", "isActive", "chessRating", "fullName"];
+      const allowedUpdates = [
+        "role", "isActive", "chessRating", "fullName", "email", "username"
+      ];
       const filteredUpdates = {};
 
       Object.keys(updates).forEach((key) => {
         if (allowedUpdates.includes(key)) {
-          filteredUpdates[key] = updates[key];
+          if (key === "chessRating") {
+            filteredUpdates[key] = parseInt(updates[key]);
+          } else {
+            filteredUpdates[key] = updates[key];
+          }
         }
       });
+
+      // Don't allow changing your own role
+      if (userId === decoded.userId && filteredUpdates.role) {
+        delete filteredUpdates.role;
+      }
 
       const result = await users.updateOne(
         { _id: new ObjectId(userId) },
@@ -103,7 +154,6 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "DELETE") {
-      // Delete user
       const { userId } = req.body;
 
       if (!userId) {
@@ -127,16 +177,94 @@ export default async function handler(req, res) {
           .json({ success: false, message: "User not found" });
       }
 
-      // Also clean up friendships
+      // Clean up related data
       const friendships = db.collection("friendships");
-      await friendships.deleteMany({
-        $or: [
-          { userId: new ObjectId(userId) },
-          { friendId: new ObjectId(userId) },
-        ],
-      });
+      const games = db.collection("games");
+      
+      await Promise.all([
+        friendships.deleteMany({
+          $or: [
+            { userId: new ObjectId(userId) },
+            { friendId: new ObjectId(userId) },
+          ],
+        }),
+        games.updateMany(
+          {
+            $or: [
+              { whitePlayerId: new ObjectId(userId) },
+              { blackPlayerId: new ObjectId(userId) }
+            ]
+          },
+          { $set: { deletedUser: true } }
+        )
+      ]);
 
       return res.json({ success: true, message: "User deleted successfully" });
+    }
+
+    if (req.method === "POST") {
+      const { action, userIds } = req.body;
+
+      if (!action || !userIds || !Array.isArray(userIds)) {
+        return res.status(400).json({
+          success: false,
+          message: "Action and user IDs array are required"
+        });
+      }
+
+      const objectIds = userIds.map(id => new ObjectId(id));
+
+      switch (action) {
+        case "bulk_activate":
+          await users.updateMany(
+            { _id: { $in: objectIds } },
+            { $set: { isActive: true, updatedAt: new Date() } }
+          );
+          return res.json({ success: true, message: "Users activated successfully" });
+
+        case "bulk_deactivate":
+          await users.updateMany(
+            { _id: { $in: objectIds } },
+            { $set: { isActive: false, updatedAt: new Date() } }
+          );
+          return res.json({ success: true, message: "Users deactivated successfully" });
+
+        case "bulk_delete":
+          // Don't allow deleting yourself
+          const filteredIds = objectIds.filter(id => id.toString() !== decoded.userId);
+          
+          await users.deleteMany({ _id: { $in: filteredIds } });
+          
+          // Clean up related data
+          const friendships = db.collection("friendships");
+          const games = db.collection("games");
+          
+          await Promise.all([
+            friendships.deleteMany({
+              $or: [
+                { userId: { $in: filteredIds } },
+                { friendId: { $in: filteredIds } },
+              ],
+            }),
+            games.updateMany(
+              {
+                $or: [
+                  { whitePlayerId: { $in: filteredIds } },
+                  { blackPlayerId: { $in: filteredIds } }
+                ]
+              },
+              { $set: { deletedUser: true } }
+            )
+          ]);
+          
+          return res.json({ success: true, message: "Users deleted successfully" });
+
+        default:
+          return res.status(400).json({
+            success: false,
+            message: "Invalid action"
+          });
+      }
     }
 
     return res
