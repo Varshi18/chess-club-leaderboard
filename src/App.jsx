@@ -11,6 +11,7 @@ import TournamentPage from './Pages/Tournaments/Tournament';
 import PlayChess from './Pages/PlayChess/PlayChess';
 import Login from './Pages/Auth/Login';
 import Register from './Pages/Auth/Register';
+import AdminDashboard from './Pages/Admin/AdminDashboard';
 import { Analytics } from "@vercel/analytics/react"
 import './App.css';
 
@@ -34,6 +35,14 @@ const App = () => {
                 element={
                   <ProtectedRoute>
                     <PlayChess />
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/admin" 
+                element={
+                  <ProtectedRoute adminOnly={true}>
+                    <AdminDashboard />
                   </ProtectedRoute>
                 } 
               />

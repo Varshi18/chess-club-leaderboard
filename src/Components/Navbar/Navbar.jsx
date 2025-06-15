@@ -37,7 +37,8 @@ const Navbar = () => {
             { path: '/about', label: 'About Us' },
             { path: '/leaderboard', label: 'Leaderboard' },
             { path: '/tournaments', label: 'Tournaments' },
-            ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : [])
+            ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : []),
+            ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
           ].map(({ path, label }) => (
             <li key={path}>
               <Link
@@ -63,6 +64,11 @@ const Navbar = () => {
             <div className="flex items-center space-x-4">
               <div className="text-sm text-gray-700 dark:text-gray-300">
                 Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
+                {user?.role === 'admin' && (
+                  <span className="ml-2 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
+                    Admin
+                  </span>
+                )}
               </div>
               <button
                 onClick={handleLogout}
@@ -118,7 +124,8 @@ const Navbar = () => {
               { path: '/about', label: 'About Us' },
               { path: '/leaderboard', label: 'Leaderboard' },
               { path: '/tournaments', label: 'Tournaments' },
-              ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : [])
+              ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : []),
+              ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
             ].map(({ path, label }) => (
               <li key={path}>
                 <Link
@@ -141,6 +148,11 @@ const Navbar = () => {
                 <div className="space-y-3">
                   <div className="text-sm text-gray-600 dark:text-gray-400">
                     Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
+                    {user?.role === 'admin' && (
+                      <span className="ml-2 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
+                        Admin
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={handleLogout}

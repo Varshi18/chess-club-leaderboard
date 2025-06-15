@@ -69,7 +69,8 @@ const FriendsList = ({ onChallengePlayer }) => {
       } else {
         setSearchResults([]);
       }
-    } catch {
+    } catch (error) {
+      console.error('Search error:', error);
       setSearchResults([]);
     } finally {
       setLoading(false);
@@ -103,6 +104,17 @@ const FriendsList = ({ onChallengePlayer }) => {
     }
   };
 
+  const rejectFriendRequest = async (requestId) => {
+    try {
+      const response = await api.post('/api/friends/reject', { requestId });
+      if (response.data.success) {
+        fetchFriendRequests();
+      }
+    } catch (error) {
+      console.error('Error rejecting friend request:', error);
+    }
+  };
+
   const getOnlineStatus = (lastSeen) => {
     const now = new Date();
     const lastSeenDate = new Date(lastSeen);
@@ -124,11 +136,11 @@ const FriendsList = ({ onChallengePlayer }) => {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
-      <div className="flex space-x-4 mb-6">
+    <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
+      <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6">
         <button
           onClick={() => setActiveTab('friends')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+          className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
             activeTab === 'friends'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -138,7 +150,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         </button>
         <button
           onClick={() => setActiveTab('search')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+          className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
             activeTab === 'search'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -148,7 +160,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         </button>
         <button
           onClick={() => setActiveTab('requests')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+          className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
             activeTab === 'requests'
               ? 'bg-blue-500 text-white'
               : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -173,27 +185,27 @@ const FriendsList = ({ onChallengePlayer }) => {
                 friends.map((friend) => (
                   <motion.div
                     key={friend.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200"
+                    className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg hover:bg-gray-100/80 dark:hover:bg-gray-600/80 transition-colors duration-200"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     whileHover={{ scale: 1.02 }}
                   >
                     <div className="flex items-center space-x-3">
                       <div className="relative">
-                        <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                           {friend.username[0].toUpperCase()}
                         </div>
-                        <div className={`absolute -bottom-1 -right-1 w-4 h-4 ${getStatusColor(getOnlineStatus(friend.lastSeen))} rounded-full border-2 border-white dark:border-gray-700`}></div>
+                        <div className={`absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 ${getStatusColor(getOnlineStatus(friend.lastSeen))} rounded-full border-2 border-white dark:border-gray-700`}></div>
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{friend.username}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating}</div>
+                        <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{friend.username}</div>
+                        <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating}</div>
                       </div>
                     </div>
                     <div className="flex space-x-2">
                       <motion.button
                         onClick={() => onChallengePlayer(friend)}
-                        className="px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                        className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         disabled={getOnlineStatus(friend.lastSeen) === 'offline'}
@@ -231,7 +243,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                   setSearchQuery(e.target.value);
                   searchUsers(e.target.value);
                 }}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white/80 dark:bg-gray-700/80 backdrop-blur-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
             </div>
 
@@ -244,31 +256,33 @@ const FriendsList = ({ onChallengePlayer }) => {
                 searchResults.map((user) => (
                   <motion.div
                     key={user.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                         {user.username[0].toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{user.username}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
+                        <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{user.username}</div>
+                        <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
                       </div>
                     </div>
                     <motion.button
                       onClick={() => sendFriendRequest(user.id)}
-                      disabled={user.friendRequestSent}
-                      className={`px-3 py-1 text-sm font-medium rounded-lg transition-all duration-300 ${
+                      disabled={user.friendRequestSent || user.isFriend}
+                      className={`px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium rounded-lg transition-all duration-300 ${
                         user.friendRequestSent
                           ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                          : user.isFriend
+                          ? 'bg-green-300 dark:bg-green-600 text-green-800 dark:text-green-200 cursor-not-allowed'
                           : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700'
                       }`}
-                      whileHover={!user.friendRequestSent ? { scale: 1.05 } : {}}
-                      whileTap={!user.friendRequestSent ? { scale: 0.95 } : {}}
+                      whileHover={!user.friendRequestSent && !user.isFriend ? { scale: 1.05 } : {}}
+                      whileTap={!user.friendRequestSent && !user.isFriend ? { scale: 0.95 } : {}}
                     >
-                      {user.friendRequestSent ? 'Sent' : 'Add Friend'}
+                      {user.isFriend ? 'Friends' : user.friendRequestSent ? 'Sent' : 'Add Friend'}
                     </motion.button>
                   </motion.div>
                 ))
@@ -301,27 +315,37 @@ const FriendsList = ({ onChallengePlayer }) => {
                 friendRequests.map((request) => (
                   <motion.div
                     key={request.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                         {request.sender.username[0].toUpperCase()}
                       </div>
                       <div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{request.sender.username}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
+                        <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{request.sender.username}</div>
+                        <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
                       </div>
                     </div>
-                    <motion.button
-                      onClick={() => acceptFriendRequest(request.id)}
-                      className="px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      Accept
-                    </motion.button>
+                    <div className="flex space-x-2">
+                      <motion.button
+                        onClick={() => acceptFriendRequest(request.id)}
+                        className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Accept
+                      </motion.button>
+                      <motion.button
+                        onClick={() => rejectFriendRequest(request.id)}
+                        className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Reject
+                      </motion.button>
+                    </div>
                   </motion.div>
                 ))
               ) : (

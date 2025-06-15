@@ -15,6 +15,7 @@ export default {
         'pulse-slow': 'pulse 3s infinite',
         'float': 'float 3s ease-in-out infinite',
         'glow': 'glow 2s ease-in-out infinite alternate',
+        'spin': 'spin 1s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -38,6 +39,10 @@ export default {
         glow: {
           '0%': { boxShadow: '0 0 5px rgba(255, 255, 255, 0.2)' },
           '100%': { boxShadow: '0 0 20px rgba(255, 255, 255, 0.4)' },
+        },
+        spin: {
+          '0%': { transform: 'rotate(0deg)' },
+          '100%': { transform: 'rotate(360deg)' },
         },
       },
       backdropBlur: {

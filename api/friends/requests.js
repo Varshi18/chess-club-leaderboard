@@ -1,93 +1,90 @@
-const { ObjectId } = require('mongodb');
+import clientPromise from "../lib/mongodb.js";
+import { verifyToken } from "../lib/auth.js";
+import { ObjectId } from "mongodb";
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ success: false, message: 'Method not allowed' });
+  if (req.method !== "GET") {
+    return res
+      .status(405)
+      .json({ success: false, message: "Method not allowed" });
   }
 
   try {
-    console.log('[REQUESTS] Starting handler...');
-
-    // Dynamic imports for ES modules
-    const { default: clientPromise } = await import('../../lib/mongodb.js');
-    const { verifyToken } = await import('../../lib/auth.js');
-
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    console.log('[REQUESTS] Token present:', !!token);
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({ success: false, message: 'Access token required' });
+      return res
+        .status(401)
+        .json({ success: false, message: "Access token required" });
     }
 
     const decoded = verifyToken(token);
-    console.log('[REQUESTS] Token decoded:', !!decoded);
-
-    if (!decoded || !ObjectId.isValid(decoded.userId)) {
-      return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+    if (!decoded || !decoded.userId) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Invalid or expired token" });
     }
 
-    const userObjectId = new ObjectId(decoded.userId);
-
     const client = await clientPromise;
-    const db = client.db('chess-club');
-    const friendships = db.collection('friendships');
-    const users = db.collection('users');
+    const db = client.db("chess-club");
+    const friendships = db.collection("friendships");
+    const users = db.collection("users");
 
-    console.log('[REQUESTS] Fetching pending friend requests...');
-    const pendingRequests = await friendships.find({
-      friendId: userObjectId,
-      status: 'pending',
-    }).toArray();
-
-    console.log('[REQUESTS] Found requests:', pendingRequests.length);
+    // Find pending friend requests where the current user is the recipient
+    const pendingRequests = await friendships
+      .find({
+        friendId: new ObjectId(decoded.userId),
+        status: "pending",
+      })
+      .toArray();
 
     if (pendingRequests.length === 0) {
       return res.json({ success: true, requests: [] });
     }
 
-    const senderIds = pendingRequests.map((r) => r.userId);
+    // Get sender information
+    const senderIds = pendingRequests.map((request) => request.userId);
     const senders = await users
-      .find({ _id: { $in: senderIds } })
-      .project({ password: 0 })
+      .find({
+        _id: { $in: senderIds },
+      })
+      .project({
+        password: 0,
+      })
       .toArray();
 
-    const sendersMap = Object.fromEntries(
-      senders.map((u) => [u._id.toString(), u])
-    );
+    // Create a map for quick lookup
+    const sendersMap = {};
+    senders.forEach((sender) => {
+      sendersMap[sender._id.toString()] = sender;
+    });
 
-    const formattedRequests = pendingRequests.map((r) => ({
-      _id: r._id.toString(),
+    // Format the response
+    const formattedRequests = pendingRequests.map((request) => ({
+      id: request._id.toString(),
       sender: {
-        id: r.userId.toString(),
-        username: sendersMap[r.userId.toString()]?.username || 'Unknown',
-        chessRating: sendersMap[r.userId.toString()]?.chessRating ?? 'N/A',
+        id: request.userId.toString(),
+        username: sendersMap[request.userId.toString()]?.username || "Unknown",
+        chessRating: sendersMap[request.userId.toString()]?.chessRating || 1200,
       },
-      createdAt: r.createdAt,
+      createdAt: request.createdAt,
     }));
 
     return res.json({ success: true, requests: formattedRequests });
-
   } catch (error) {
-    console.error('[REQUESTS] Fatal error:', error);
-    console.error('[REQUESTS] Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    
+    console.error("Friend requests error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch friend requests',
-      error: error.message,
+      message: "Failed to fetch friend requests",
     });
   }
 }
