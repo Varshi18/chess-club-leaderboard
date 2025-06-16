@@ -88,7 +88,8 @@ export default async function handler(req, res) {
       gamesWon: 0,
       isActive: true,
       createdAt: new Date(),
-      lastLogin: new Date()
+      lastLogin: new Date(),
+      role: email === "your-admin-email@example.com" ? "admin" : "user"
     };
 
     const result = await users.insertOne(newUser);
