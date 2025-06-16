@@ -56,15 +56,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // Return user data (without password)
+    // Return user data (without password) and ensure role is included
     const userResponse = {
       id: user._id.toString(),
       username: user.username,
       email: user.email,
       fullName: user.fullName,
       chessRating: user.chessRating,
+      role: user.role || 'user', // Ensure role is always present
       stats: getUserStats(user)
     };
+
+    console.log('User data being returned:', userResponse); // Debug log
 
     res.json({
       success: true,

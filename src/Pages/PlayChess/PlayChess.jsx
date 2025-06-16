@@ -10,25 +10,29 @@ const PlayChess = () => {
   const [activeMode, setActiveMode] = useState('practice');
   const [gameId, setGameId] = useState(null);
   const [opponent, setOpponent] = useState(null);
-  const [showChallengeModal, setShowChallengeModal] = useState(false);
-  const [selectedFriend, setSelectedFriend] = useState(null);
+  const [gameInProgress, setGameInProgress] = useState(false);
 
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
   }, []);
 
-  const handleChallengePlayer = (friend) => {
-    setSelectedFriend(friend);
-    setShowChallengeModal(true);
+  const handleChallengePlayer = (friendData) => {
+    const newGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    setGameId(newGameId);
+    setOpponent({
+      id: friendData.id,
+      username: friendData.username,
+      chessRating: friendData.chessRating
+    });
+    setActiveMode('multiplayer');
+    setGameInProgress(true);
   };
 
-  const startGame = (mode, options = {}) => {
-    setActiveMode(mode);
-    if (mode === 'multiplayer') {
-      setGameId(options.gameId);
-      setOpponent(options.opponent);
-    }
-    setShowChallengeModal(false);
+  const handleGameEnd = () => {
+    setGameInProgress(false);
+    setGameId(null);
+    setOpponent(null);
+    setActiveMode('friends');
   };
 
   const gameModes = [
@@ -54,6 +58,40 @@ const PlayChess = () => {
       color: 'from-yellow-500 to-yellow-600'
     }
   ];
+
+  // Prevent navigation away during active game
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (gameInProgress) {
+        e.preventDefault();
+        e.returnValue = 'You have an active game. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    const handlePopState = (e) => {
+      if (gameInProgress) {
+        const confirmLeave = window.confirm('You have an active game. Are you sure you want to leave?');
+        if (!confirmLeave) {
+          window.history.pushState(null, '', window.location.pathname);
+        } else {
+          handleGameEnd();
+        }
+      }
+    };
+
+    if (gameInProgress) {
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('popstate', handlePopState);
+      // Push current state to prevent back navigation
+      window.history.pushState(null, '', window.location.pathname);
+    }
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [gameInProgress]);
 
   return (
    <div className="min-h-screen relative overflow-hidden pt-20">
@@ -92,18 +130,21 @@ const PlayChess = () => {
                 transition={{ duration: 0.5 }}
               >
                 <div className="mb-8 flex justify-center">
-                  <div className="flex space-x-4 bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg">
+                  <div className="flex space-x-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg">
                     {gameModes.map((mode) => (
                       <motion.button
                         key={mode.id}
-                        onClick={() => setActiveMode(mode.id)}
+                        onClick={() => !gameInProgress && setActiveMode(mode.id)}
+                        disabled={gameInProgress && mode.id !== activeMode}
                         className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
                           activeMode === mode.id
                             ? `bg-gradient-to-r ${mode.color} text-white shadow-lg`
+                            : gameInProgress
+                            ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileHover={!gameInProgress ? { scale: 1.05 } : {}}
+                        whileTap={!gameInProgress ? { scale: 0.95 } : {}}
                       >
                         <span className="text-xl mr-2">{mode.icon}</span>
                         <span className="hidden sm:inline">{mode.title}</span>
@@ -124,18 +165,21 @@ const PlayChess = () => {
                 transition={{ duration: 0.5 }}
               >
                 <div className="mb-8 flex justify-center">
-                  <div className="flex space-x-4 bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg">
+                  <div className="flex space-x-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg">
                     {gameModes.map((mode) => (
                       <motion.button
                         key={mode.id}
-                        onClick={() => setActiveMode(mode.id)}
+                        onClick={() => !gameInProgress && setActiveMode(mode.id)}
+                        disabled={gameInProgress && mode.id !== activeMode}
                         className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
                           activeMode === mode.id
                             ? `bg-gradient-to-r ${mode.color} text-white shadow-lg`
+                            : gameInProgress
+                            ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileHover={!gameInProgress ? { scale: 1.05 } : {}}
+                        whileTap={!gameInProgress ? { scale: 0.95 } : {}}
                       >
                         <span className="text-xl mr-2">{mode.icon}</span>
                         <span className="hidden sm:inline">{mode.title}</span>
@@ -156,18 +200,21 @@ const PlayChess = () => {
                 transition={{ duration: 0.5 }}
               >
                 <div className="mb-8 flex justify-center">
-                  <div className="flex space-x-4 bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg">
+                  <div className="flex space-x-4 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-2 shadow-lg">
                     {gameModes.map((mode) => (
                       <motion.button
                         key={mode.id}
-                        onClick={() => setActiveMode(mode.id)}
+                        onClick={() => !gameInProgress && setActiveMode(mode.id)}
+                        disabled={gameInProgress && mode.id !== activeMode}
                         className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
                           activeMode === mode.id
                             ? `bg-gradient-to-r ${mode.color} text-white shadow-lg`
+                            : gameInProgress
+                            ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
+                        whileHover={!gameInProgress ? { scale: 1.05 } : {}}
+                        whileTap={!gameInProgress ? { scale: 0.95 } : {}}
                       >
                         <span className="text-xl mr-2">{mode.icon}</span>
                         <span className="hidden sm:inline">{mode.title}</span>
@@ -189,89 +236,38 @@ const PlayChess = () => {
               >
                 <div className="mb-8 flex justify-center">
                   <motion.button
-                    onClick={() => setActiveMode('friends')}
-                    className="px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white font-medium rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all duration-300"
+                    onClick={handleGameEnd}
+                    className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-300"
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
-                    ← Back to Friends
+                    ← End Game & Return
                   </motion.button>
                 </div>
                 <MultiplayerChess 
                   gameMode="multiplayer" 
                   gameId={gameId} 
-                  opponent={opponent} 
+                  opponent={opponent}
+                  onGameEnd={handleGameEnd}
                 />
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Challenge Modal */}
-          <AnimatePresence>
-            {showChallengeModal && selectedFriend && (
-              <motion.div
-                className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-              >
-                <motion.div
-                  className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
-                  initial={{ scale: 0.7, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.7, opacity: 0 }}
-                >
-                  <div className="text-center mb-6">
-                    <div className="text-4xl mb-4">⚔️</div>
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                      Challenge {selectedFriend.username}
-                    </h2>
-                    <p className="text-gray-600 dark:text-gray-400">
-                      Choose your time control for the game
-                    </p>
-                  </div>
-
-                  <div className="space-y-3 mb-6">
-                    {[
-                      { name: 'Blitz', time: '5+0', minutes: 5 },
-                      { name: 'Rapid', time: '10+0', minutes: 10 },
-                      { name: 'Classical', time: '30+0', minutes: 30 }
-                    ].map((timeControl) => (
-                      <motion.button
-                        key={timeControl.name}
-                        onClick={() => startGame('multiplayer', {
-                          gameId: `game_${Date.now()}`,
-                          opponent: selectedFriend,
-                          timeControl: timeControl.minutes * 60
-                        })}
-                        className="w-full p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 text-left"
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                      >
-                        <div className="font-semibold text-gray-900 dark:text-white">
-                          {timeControl.name}
-                        </div>
-                        <div className="text-sm text-gray-600 dark:text-gray-400">
-                          {timeControl.time} minutes
-                        </div>
-                      </motion.button>
-                    ))}
-                  </div>
-
-                  <div className="flex space-x-3">
-                    <motion.button
-                      onClick={() => setShowChallengeModal(false)}
-                      className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors duration-200"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      Cancel
-                    </motion.button>
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* Game In Progress Warning */}
+          {gameInProgress && (
+            <motion.div
+              className="fixed bottom-4 right-4 bg-orange-500 text-white px-4 py-2 rounded-lg shadow-lg z-50"
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+            >
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium">Game in progress</span>
+              </div>
+            </motion.div>
+          )}
         </div>
       </div>
     </div>

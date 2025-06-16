@@ -24,8 +24,28 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (adminOnly && user?.role !== 'admin') {
-    return <Navigate to="/" replace />;
+  if (adminOnly) {
+    console.log('Admin check - User:', user); // Debug log
+    console.log('User role:', user?.role); // Debug log
+    
+    if (!user || user.role !== 'admin') {
+      console.log('Access denied - not admin'); // Debug log
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-6xl mb-4">🚫</div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h2>
+            <p className="text-gray-600 dark:text-gray-400">You need admin privileges to access this page.</p>
+            <button 
+              onClick={() => window.history.back()} 
+              className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
+              Go Back
+            </button>
+          </div>
+        </div>
+      );
+    }
   }
 
   return children;

@@ -4,7 +4,6 @@ import { Chess } from 'chess.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import GameTimer from '../GameTimer/GameTimer';
 import { useAuth } from '../../context/AuthContext';
-import io from 'socket.io-client';
 
 const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = null }) => {
   const [game, setGame] = useState(new Chess());
@@ -15,56 +14,15 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
   const [possibleMoves, setPossibleMoves] = useState([]);
   const [capturedPieces, setCapturedPieces] = useState({ white: [], black: [] });
   const [playerColor, setPlayerColor] = useState('white');
-  const [socket, setSocket] = useState(null);
   const [gameResult, setGameResult] = useState(null);
   const [showGameOver, setShowGameOver] = useState(false);
   const [timeControl, setTimeControl] = useState({ white: 600, black: 600 });
   const [activePlayer, setActivePlayer] = useState('white');
   const [isPaused, setIsPaused] = useState(false);
+  const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
+  const [waitingForOpponent, setWaitingForOpponent] = useState(gameMode === 'multiplayer');
   
   const { user } = useAuth();
-
-  // Socket connection for multiplayer
-  useEffect(() => {
-    if (gameMode === 'multiplayer' && gameId) {
-      const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
-      setSocket(newSocket);
-
-      newSocket.emit('join-game', { gameId, userId: user.id });
-
-      newSocket.on('game-state', (state) => {
-        const gameInstance = new Chess(state.fen);
-        setGame(gameInstance);
-        setGamePosition(state.fen);
-        setMoveHistory(state.moveHistory || []);
-        setPlayerColor(state.playerColor);
-        setTimeControl(state.timeControl || { white: 600, black: 600 });
-        setActivePlayer(state.activePlayer || 'white');
-        updateGameStatus(gameInstance);
-      });
-
-      newSocket.on('move-made', (moveData) => {
-        const gameInstance = new Chess(moveData.fen);
-        setGame(gameInstance);
-        setGamePosition(moveData.fen);
-        setMoveHistory(moveData.moveHistory);
-        setTimeControl(moveData.timeControl);
-        setActivePlayer(moveData.activePlayer);
-        updateGameStatus(gameInstance);
-        updateCapturedPieces(moveData.moveHistory);
-      });
-
-      newSocket.on('game-over', (result) => {
-        setGameResult(result);
-        setShowGameOver(true);
-        setIsPaused(true);
-      });
-
-      return () => {
-        newSocket.disconnect();
-      };
-    }
-  }, [gameMode, gameId, user.id]);
 
   const updateGameStatus = useCallback((gameInstance) => {
     if (gameInstance.isCheckmate()) {
@@ -114,16 +72,9 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
     setCapturedPieces(captured);
   }, []);
 
-  const calculateRatingChange = (playerRating, opponentRating, result) => {
-    const K = 32; // K-factor
-    const expectedScore = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
-    const actualScore = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
-    return Math.round(K * (actualScore - expectedScore));
-  };
-
   const makeMove = useCallback((sourceSquare, targetSquare, piece) => {
-    // In multiplayer, only allow moves if it's the player's turn
-    if (gameMode === 'multiplayer' && game.turn() !== playerColor[0]) {
+    // In multiplayer, only allow moves if it's the player's turn and game has started
+    if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
       return false;
     }
 
@@ -149,22 +100,6 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
         // Switch active player
         const newActivePlayer = game.turn() === 'w' ? 'black' : 'white';
         setActivePlayer(newActivePlayer);
-
-        // Send move to server in multiplayer mode
-        if (gameMode === 'multiplayer' && socket) {
-          socket.emit('make-move', {
-            gameId,
-            move: {
-              from: sourceSquare,
-              to: targetSquare,
-              promotion: piece?.[1]?.toLowerCase() ?? 'q'
-            },
-            fen: gameCopy.fen(),
-            moveHistory: newHistory,
-            timeControl,
-            activePlayer: newActivePlayer
-          });
-        }
         
         return true;
       }
@@ -173,11 +108,11 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
     }
     
     return false;
-  }, [game, gameMode, playerColor, socket, gameId, timeControl, updateGameStatus, updateCapturedPieces]);
+  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces]);
 
   const onSquareClick = useCallback((square) => {
-    // In multiplayer, only allow interaction if it's the player's turn
-    if (gameMode === 'multiplayer' && game.turn() !== playerColor[0]) {
+    // In multiplayer, only allow interaction if it's the player's turn and game has started
+    if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
       return;
     }
 
@@ -207,7 +142,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
         setPossibleMoves(moves.map(move => move.to));
       }
     }
-  }, [game, selectedSquare, makeMove, gameMode, playerColor]);
+  }, [game, selectedSquare, makeMove, gameMode, playerColor, gameStarted]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
     return makeMove(sourceSquare, targetSquare, piece);
@@ -226,19 +161,28 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
     setTimeControl({ white: 600, black: 600 });
     setActivePlayer('white');
     setIsPaused(false);
+    setGameStarted(gameMode === 'practice');
+    setWaitingForOpponent(gameMode === 'multiplayer');
     updateGameStatus(newGame);
-  }, [updateGameStatus]);
+  }, [updateGameStatus, gameMode]);
 
   const handleTimeUp = useCallback((player) => {
     const winner = player === 'white' ? 'Black' : 'White';
     setGameResult({ winner, reason: 'timeout' });
     setShowGameOver(true);
     setIsPaused(true);
-    
-    if (gameMode === 'multiplayer' && socket) {
-      socket.emit('time-up', { gameId, player });
-    }
-  }, [gameMode, socket, gameId]);
+  }, []);
+
+  const acceptGame = useCallback(() => {
+    setGameStarted(true);
+    setWaitingForOpponent(false);
+    setIsPaused(false);
+  }, []);
+
+  const declineGame = useCallback(() => {
+    // Return to friends list or previous state
+    window.history.back();
+  }, []);
 
   const customSquareStyles = {};
   
@@ -267,7 +211,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
     <div className="max-w-7xl mx-auto p-4 sm:p-6">
       <div className="grid lg:grid-cols-4 gap-6 sm:gap-8">
         {/* Timers */}
-        {gameMode !== 'practice' && (
+        {gameMode !== 'practice' && gameStarted && (
           <div className="lg:col-span-1 space-y-4">
             <GameTimer
               initialTime={timeControl.black}
@@ -302,7 +246,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                 customSquareStyles={customSquareStyles}
                 boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
                 animationDuration={200}
-                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || game.turn() === playerColor[0])}
+                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && game.turn() === playerColor[0]))}
                 customBoardStyle={{
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
@@ -335,14 +279,14 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
               animate={{ scale: [1, 1.02, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
             >
-              {gameStatus}
+              {waitingForOpponent ? 'Waiting for opponent...' : gameStatus}
             </motion.div>
             
             {gameMode === 'multiplayer' && opponent && (
               <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                 <div className="text-sm text-gray-600 dark:text-gray-400">Playing against:</div>
                 <div className="font-semibold text-gray-900 dark:text-white">{opponent.username}</div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {opponent.rating}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {opponent.chessRating}</div>
               </div>
             )}
           </motion.div>
@@ -367,7 +311,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                 </motion.button>
               )}
               
-              {gameMode === 'multiplayer' && (
+              {gameMode === 'multiplayer' && gameStarted && (
                 <motion.button
                   onClick={() => setIsPaused(!isPaused)}
                   className="w-full px-4 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300"
@@ -376,6 +320,27 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                 >
                   {isPaused ? 'Resume' : 'Pause'}
                 </motion.button>
+              )}
+
+              {gameMode === 'multiplayer' && !gameStarted && (
+                <div className="space-y-2">
+                  <motion.button
+                    onClick={acceptGame}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept Game
+                  </motion.button>
+                  <motion.button
+                    onClick={declineGame}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline Game
+                  </motion.button>
+                </div>
               )}
             </div>
           </motion.div>
@@ -451,7 +416,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                     {moveHistory.map((move, index) => (
                       <motion.div 
                         key={index} 
-                        className="flex justify-between items-center py-1 px-2 rounded text-sm"
+                        className="flex justify-between items-center py-1 px-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                         initial={{ x: -20, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         transition={{ duration: 0.3, delay: index * 0.05 }}
@@ -461,6 +426,9 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                         </span>
                         <span className="font-mono text-gray-900 dark:text-white">
                           {move.san}
+                        </span>
+                        <span className="text-xs text-gray-500 dark:text-gray-500">
+                          {move.color === 'w' ? '♔' : '♚'}
                         </span>
                       </motion.div>
                     ))}
@@ -527,6 +495,54 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                       New Game
                     </motion.button>
                   )}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Game Invitation Modal */}
+      <AnimatePresence>
+        {gameMode === 'multiplayer' && waitingForOpponent && opponent && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="text-center">
+                <div className="text-6xl mb-4">⚔️</div>
+                <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                  Game Invitation
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  {opponent.username} has challenged you to a chess game!
+                </p>
+                <div className="flex gap-4">
+                  <motion.button
+                    onClick={declineGame}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline
+                  </motion.button>
+                  <motion.button
+                    onClick={acceptGame}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept
+                  </motion.button>
                 </div>
               </div>
             </motion.div>

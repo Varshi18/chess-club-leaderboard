@@ -36,7 +36,13 @@ export const AuthProvider = ({ children }) => {
         try {
           const response = await axios.get('/auth/me');
           if (response.data.success) {
-            setUser(response.data.user);
+            // Ensure user object has all necessary fields including role
+            const userData = {
+              ...response.data.user,
+              role: response.data.user.role || 'user' // Default to 'user' if role is missing
+            };
+            setUser(userData);
+            console.log('User authenticated:', userData); // Debug log
           } else {
             localStorage.removeItem('token');
             setToken(null);
@@ -59,9 +65,15 @@ export const AuthProvider = ({ children }) => {
       
       if (response.data.success) {
         const { token: newToken, user: userData } = response.data;
+        // Ensure user object has role field
+        const userWithRole = {
+          ...userData,
+          role: userData.role || 'user'
+        };
         localStorage.setItem('token', newToken);
         setToken(newToken);
-        setUser(userData);
+        setUser(userWithRole);
+        console.log('Login successful:', userWithRole); // Debug log
         return { success: true, message: response.data.message };
       }
       
@@ -78,9 +90,13 @@ export const AuthProvider = ({ children }) => {
       
       if (response.data.success) {
         const { token: newToken, user: newUser } = response.data;
+        const userWithRole = {
+          ...newUser,
+          role: newUser.role || 'user'
+        };
         localStorage.setItem('token', newToken);
         setToken(newToken);
-        setUser(newUser);
+        setUser(userWithRole);
         return { success: true, message: response.data.message };
       }
       
