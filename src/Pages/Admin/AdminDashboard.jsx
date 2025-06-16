@@ -5,13 +5,20 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 const AdminDashboard = () => {
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('overview');
   const [users, setUsers] = useState([]);
-  const [tournaments, setTournaments] = useState([]);
+  const [games, setGames] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState(null);
-  const [editingTournament, setEditingTournament] = useState(null);
-  const [showCreateTournament, setShowCreateTournament] = useState(false);
+  const [selectedGame, setSelectedGame] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    userRole: 'all',
+    userStatus: 'all',
+    gameResult: 'all',
+    gameType: 'all'
+  });
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -26,13 +33,18 @@ const AdminDashboard = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [usersRes, tournamentsRes] = await Promise.all([
-        axios.get('/api/admin/users'),
-        axios.get('/api/admin/tournaments')
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const [usersRes, gamesRes, analyticsRes] = await Promise.all([
+        axios.get('/api/admin?resource=users', { headers }),
+        axios.get('/api/admin?resource=games', { headers }),
+        axios.get('/api/admin?resource=analytics', { headers })
       ]);
       
       if (usersRes.data.success) setUsers(usersRes.data.users);
-      if (tournamentsRes.data.success) setTournaments(tournamentsRes.data.tournaments);
+      if (gamesRes.data.success) setGames(gamesRes.data.games);
+      if (analyticsRes.data.success) setAnalytics(analyticsRes.data.analytics);
     } catch (error) {
       console.error('Error fetching admin data:', error);
     } finally {
@@ -42,7 +54,11 @@ const AdminDashboard = () => {
 
   const updateUser = async (userId, updates) => {
     try {
-      const response = await axios.put('/api/admin/users', { userId, updates });
+      const token = localStorage.getItem('token');
+      const response = await axios.put('/api/admin?resource=users', 
+        { userId, updates }, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
       if (response.data.success) {
         fetchData();
         setEditingUser(null);
@@ -56,7 +72,13 @@ const AdminDashboard = () => {
     if (!confirm('Are you sure you want to delete this user?')) return;
     
     try {
-      const response = await axios.delete('/api/admin/users', { data: { userId } });
+      const token = localStorage.getItem('token');
+      const response = await axios.delete('/api/admin?resource=users', 
+        { 
+          data: { userId },
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
       if (response.data.success) {
         fetchData();
       }
@@ -65,55 +87,60 @@ const AdminDashboard = () => {
     }
   };
 
-  const createTournament = async (tournamentData) => {
+  const downloadPGN = async (gameId) => {
     try {
-      const response = await axios.post('/api/admin/tournaments', tournamentData);
-      if (response.data.success) {
-        fetchData();
-        setShowCreateTournament(false);
-      }
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/games?resource=pgn&gameId=${gameId}&download=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `game_${gameId}.pgn`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
     } catch (error) {
-      console.error('Error creating tournament:', error);
+      console.error('Error downloading PGN:', error);
     }
   };
 
-  const updateTournament = async (tournamentId, updates) => {
-    try {
-      const response = await axios.put('/api/admin/tournaments', { tournamentId, updates });
-      if (response.data.success) {
-        fetchData();
-        setEditingTournament(null);
-      }
-    } catch (error) {
-      console.error('Error updating tournament:', error);
-    }
-  };
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         user.fullName.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesRole = filters.userRole === 'all' || user.role === filters.userRole;
+    const matchesStatus = filters.userStatus === 'all' || 
+                         (filters.userStatus === 'active' && user.isActive) ||
+                         (filters.userStatus === 'inactive' && !user.isActive);
+    return matchesSearch && matchesRole && matchesStatus;
+  });
 
-  const deleteTournament = async (tournamentId) => {
-    if (!confirm('Are you sure you want to delete this tournament?')) return;
-    
-    try {
-      const response = await axios.delete('/api/admin/tournaments', { data: { tournamentId } });
-      if (response.data.success) {
-        fetchData();
-      }
-    } catch (error) {
-      console.error('Error deleting tournament:', error);
-    }
-  };
+  const filteredGames = games.filter(game => {
+    const matchesSearch = game.whitePlayer.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         game.blackPlayer.username.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesResult = filters.gameResult === 'all' || game.result === filters.gameResult;
+    const matchesType = filters.gameType === 'all' || game.gameType === filters.gameType;
+    return matchesSearch && matchesResult && matchesType;
+  });
 
   const tabs = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'users', label: 'Users', icon: '👥' },
-    { id: 'tournaments', label: 'Tournaments', icon: '🏆' },
-    { id: 'stats', label: 'Statistics', icon: '📊' }
+    { id: 'games', label: 'Games', icon: '♟️' },
+    { id: 'analytics', label: 'Analytics', icon: '📈' }
   ];
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pt-20 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-800 rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-blue-200 dark:border-blue-800 rounded-full animate-spin"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
           <p className="text-gray-600 dark:text-gray-400 mt-8">Loading admin dashboard...</p>
         </div>
       </div>
@@ -132,18 +159,18 @@ const AdminDashboard = () => {
             Admin Dashboard
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Manage users, tournaments, and system settings
+            Manage users, games, and system analytics
           </p>
         </motion.div>
 
         {/* Tabs */}
         <div className="mb-8">
-          <div className="flex space-x-4 bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg">
+          <div className="flex space-x-4 bg-white dark:bg-gray-800 rounded-2xl p-2 shadow-lg overflow-x-auto">
             {tabs.map((tab) => (
               <motion.button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 ${
+                className={`px-6 py-3 rounded-xl font-medium transition-all duration-300 whitespace-nowrap ${
                   activeTab === tab.id
                     ? 'bg-blue-500 text-white shadow-lg'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -158,7 +185,113 @@ const AdminDashboard = () => {
           </div>
         </div>
 
+        {/* Search and Filters */}
+        {(activeTab === 'users' || activeTab === 'games') && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg"
+          >
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  placeholder={`Search ${activeTab}...`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                />
+              </div>
+              {activeTab === 'users' && (
+                <>
+                  <select
+                    value={filters.userRole}
+                    onChange={(e) => setFilters({...filters, userRole: e.target.value})}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <select
+                    value={filters.userStatus}
+                    onChange={(e) => setFilters({...filters, userStatus: e.target.value})}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </>
+              )}
+              {activeTab === 'games' && (
+                <>
+                  <select
+                    value={filters.gameResult}
+                    onChange={(e) => setFilters({...filters, gameResult: e.target.value})}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Results</option>
+                    <option value="1-0">White Wins</option>
+                    <option value="0-1">Black Wins</option>
+                    <option value="1/2-1/2">Draw</option>
+                  </select>
+                  <select
+                    value={filters.gameType}
+                    onChange={(e) => setFilters({...filters, gameType: e.target.value})}
+                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="casual">Casual</option>
+                    <option value="ranked">Ranked</option>
+                    <option value="tournament">Tournament</option>
+                  </select>
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+
         <AnimatePresence mode="wait">
+          {activeTab === 'overview' && analytics && (
+            <motion.div
+              key="overview"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+            >
+              <StatsCard
+                title="Total Users"
+                value={analytics.users.totalUsers}
+                icon="👥"
+                color="blue"
+                subtitle={`${analytics.users.activeUsers} active`}
+              />
+              <StatsCard
+                title="Total Games"
+                value={analytics.games.totalGames}
+                icon="♟️"
+                color="green"
+                subtitle={`${analytics.games.recentGames} this month`}
+              />
+              <StatsCard
+                title="Average Rating"
+                value={Math.round(analytics.users.avgRating)}
+                icon="⭐"
+                color="yellow"
+                subtitle="Club average"
+              />
+              <StatsCard
+                title="Active Tournaments"
+                value={analytics.tournaments.activeTournaments}
+                icon="🏆"
+                color="purple"
+                subtitle={`${analytics.tournaments.totalTournaments} total`}
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'users' && (
             <motion.div
               key="users"
@@ -169,51 +302,50 @@ const AdminDashboard = () => {
             >
               <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  User Management ({users.length} users)
+                  User Management ({filteredUsers.length} users)
                 </h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        User
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Rating
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Actions
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">User</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Rating</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Games</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Role</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                    {users.map((userData) => (
-                      <tr key={userData.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {filteredUsers.map((userData) => (
+                      <motion.tr 
+                        key={userData.id} 
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
+                      >
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
-                              {userData.username}
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold mr-3">
+                              {userData.username[0].toUpperCase()}
                             </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              {userData.fullName}
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">{userData.username}</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">{userData.fullName}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {userData.email}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{userData.email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
+                            {userData.chessRating}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {userData.chessRating}
+                          {userData.gamesPlayed} ({userData.winRate}% win rate)
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${
@@ -249,7 +381,7 @@ const AdminDashboard = () => {
                             </button>
                           )}
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -257,97 +389,93 @@ const AdminDashboard = () => {
             </motion.div>
           )}
 
-          {activeTab === 'tournaments' && (
+          {activeTab === 'games' && (
             <motion.div
-              key="tournaments"
+              key="games"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden"
             >
-              <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                  Tournament Management ({tournaments.length} tournaments)
+                  Game Management ({filteredGames.length} games)
                 </h2>
-                <button
-                  onClick={() => setShowCreateTournament(true)}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                >
-                  Create Tournament
-                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Tournament
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Format
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Participants
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Start Time
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                        Actions
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Players</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Result</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Time Control</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Duration</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                    {tournaments.map((tournament) => (
-                      <tr key={tournament.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {filteredGames.map((game) => (
+                      <motion.tr 
+                        key={game.id} 
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.05)' }}
+                      >
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900 dark:text-white">
-                              {tournament.name}
+                          <div className="text-sm">
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {game.whitePlayer.username} vs {game.blackPlayer.username}
                             </div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">
-                              Prize: {tournament.prizePool} points
+                            <div className="text-gray-500 dark:text-gray-400">
+                              {game.whitePlayer.rating} - {game.blackPlayer.rating}
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {tournament.format} - {tournament.timeControl}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {tournament.participants.length} / {tournament.maxParticipants}
-                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            tournament.status === 'active' 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              : tournament.status === 'upcoming'
-                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                              : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                            game.result === '1-0' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                            game.result === '0-1' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                            'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                           }`}>
-                            {tournament.status}
+                            {game.result}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                          {new Date(tournament.startTime).toLocaleDateString()}
+                          {game.timeControl}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {Math.floor(game.duration / 60)}m {game.duration % 60}s
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            game.gameType === 'ranked' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                            game.gameType === 'tournament' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                            'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                          }`}>
+                            {game.gameType}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {new Date(game.createdAt).toLocaleDateString()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                           <button
-                            onClick={() => setEditingTournament(tournament)}
+                            onClick={() => setSelectedGame(game)}
                             className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
                           >
-                            Edit
+                            View
                           </button>
                           <button
-                            onClick={() => deleteTournament(tournament.id)}
-                            className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                            onClick={() => downloadPGN(game.id)}
+                            className="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
                           >
-                            Delete
+                            PGN
                           </button>
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
@@ -355,64 +483,37 @@ const AdminDashboard = () => {
             </motion.div>
           )}
 
-          {activeTab === 'stats' && (
+          {activeTab === 'analytics' && analytics && (
             <motion.div
-              key="stats"
+              key="analytics"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
+              className="space-y-6"
             >
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
-                <div className="flex items-center">
-                  <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-full">
-                    <span className="text-2xl">👥</span>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Users</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{users.length}</p>
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <AnalyticsCard
+                  title="Top Players"
+                  data={analytics.topPlayers}
+                  type="players"
+                />
+                <AnalyticsCard
+                  title="Most Active Players"
+                  data={analytics.activePlayers}
+                  type="active"
+                />
               </div>
-              
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
-                <div className="flex items-center">
-                  <div className="p-3 bg-green-100 dark:bg-green-900 rounded-full">
-                    <span className="text-2xl">✅</span>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Users</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {users.filter(u => u.isActive).length}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
-                <div className="flex items-center">
-                  <div className="p-3 bg-yellow-100 dark:bg-yellow-900 rounded-full">
-                    <span className="text-2xl">🏆</span>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Tournaments</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{tournaments.length}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg">
-                <div className="flex items-center">
-                  <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-full">
-                    <span className="text-2xl">⚡</span>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active Tournaments</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {tournaments.filter(t => t.status === 'active').length}
-                    </p>
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <AnalyticsCard
+                  title="Time Control Distribution"
+                  data={analytics.timeControlStats}
+                  type="timeControl"
+                />
+                <AnalyticsCard
+                  title="Rating Distribution"
+                  data={analytics.ratingDistribution}
+                  type="rating"
+                />
               </div>
             </motion.div>
           )}
@@ -429,28 +530,119 @@ const AdminDashboard = () => {
           )}
         </AnimatePresence>
 
-        {/* Edit Tournament Modal */}
+        {/* Game Details Modal */}
         <AnimatePresence>
-          {editingTournament && (
-            <EditTournamentModal
-              tournament={editingTournament}
-              onSave={updateTournament}
-              onClose={() => setEditingTournament(null)}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Create Tournament Modal */}
-        <AnimatePresence>
-          {showCreateTournament && (
-            <CreateTournamentModal
-              onSave={createTournament}
-              onClose={() => setShowCreateTournament(false)}
+          {selectedGame && (
+            <GameDetailsModal
+              game={selectedGame}
+              onClose={() => setSelectedGame(null)}
+              onDownloadPGN={() => downloadPGN(selectedGame.id)}
             />
           )}
         </AnimatePresence>
       </div>
     </div>
+  );
+};
+
+// Stats Card Component
+const StatsCard = ({ title, value, icon, color, subtitle }) => {
+  const colorClasses = {
+    blue: 'from-blue-500 to-blue-600',
+    green: 'from-green-500 to-green-600',
+    yellow: 'from-yellow-500 to-yellow-600',
+    purple: 'from-purple-500 to-purple-600'
+  };
+
+  return (
+    <motion.div
+      className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg"
+      whileHover={{ scale: 1.02, y: -5 }}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center">
+        <div className={`p-3 bg-gradient-to-r ${colorClasses[color]} rounded-full`}>
+          <span className="text-2xl">{icon}</span>
+        </div>
+        <div className="ml-4">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{title}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+          {subtitle && <p className="text-xs text-gray-500 dark:text-gray-500">{subtitle}</p>}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// Analytics Card Component
+const AnalyticsCard = ({ title, data, type }) => {
+  return (
+    <motion.div
+      className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">{title}</h3>
+      <div className="space-y-3 max-h-64 overflow-y-auto">
+        {data.map((item, index) => (
+          <motion.div
+            key={index}
+            className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: index * 0.1 }}
+          >
+            {type === 'players' && (
+              <>
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                    {index + 1}
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">{item.username}</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      {item.gamesPlayed} games, {item.winRate}% win rate
+                    </div>
+                  </div>
+                </div>
+                <span className="font-bold text-blue-600 dark:text-blue-400">{item.rating}</span>
+              </>
+            )}
+            {type === 'active' && (
+              <>
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-gradient-to-r from-green-400 to-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                    {index + 1}
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-900 dark:text-white">{item.username}</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Rating: {item.rating}, {item.winRate}% win rate
+                    </div>
+                  </div>
+                </div>
+                <span className="font-bold text-green-600 dark:text-green-400">{item.gamesPlayed}</span>
+              </>
+            )}
+            {type === 'timeControl' && (
+              <>
+                <span className="font-medium text-gray-900 dark:text-white">{item._id}</span>
+                <span className="font-bold text-purple-600 dark:text-purple-400">{item.count}</span>
+              </>
+            )}
+            {type === 'rating' && (
+              <>
+                <span className="font-medium text-gray-900 dark:text-white">
+                  {item._id === 'Other' ? 'Other' : `${item._id}-${parseInt(item._id) + 199}`}
+                </span>
+                <span className="font-bold text-orange-600 dark:text-orange-400">{item.count}</span>
+              </>
+            )}
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
   );
 };
 
@@ -553,24 +745,8 @@ const EditUserModal = ({ user, onSave, onClose }) => {
   );
 };
 
-// Edit Tournament Modal Component
-const EditTournamentModal = ({ tournament, onSave, onClose }) => {
-  const [formData, setFormData] = useState({
-    name: tournament.name,
-    format: tournament.format,
-    timeControl: tournament.timeControl,
-    maxParticipants: tournament.maxParticipants,
-    prizePool: tournament.prizePool,
-    status: tournament.status,
-    startTime: new Date(tournament.startTime).toISOString().slice(0, 16),
-    endTime: new Date(tournament.endTime).toISOString().slice(0, 16)
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave(tournament.id, formData);
-  };
-
+// Game Details Modal Component
+const GameDetailsModal = ({ game, onClose, onDownloadPGN }) => {
   return (
     <motion.div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
@@ -579,274 +755,90 @@ const EditTournamentModal = ({ tournament, onSave, onClose }) => {
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
         initial={{ scale: 0.7 }}
         animate={{ scale: 1 }}
         exit={{ scale: 0.7 }}
       >
-        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-          Edit Tournament
-        </h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tournament Name
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
+        <div className="flex justify-between items-start mb-6">
+          <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+            Game Details
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">White Player</h4>
+              <p className="text-lg font-bold">{game.whitePlayer.username}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Rating: {game.whitePlayer.rating}</p>
+              {game.ratingChange && (
+                <p className={`text-sm font-medium ${
+                  game.ratingChange.white > 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {game.ratingChange.white > 0 ? '+' : ''}{game.ratingChange.white}
+                </p>
+              )}
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Black Player</h4>
+              <p className="text-lg font-bold">{game.blackPlayer.username}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Rating: {game.blackPlayer.rating}</p>
+              {game.ratingChange && (
+                <p className={`text-sm font-medium ${
+                  game.ratingChange.black > 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {game.ratingChange.black > 0 ? '+' : ''}{game.ratingChange.black}
+                </p>
+              )}
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Format
-            </label>
-            <select
-              value={formData.format}
-              onChange={(e) => setFormData({ ...formData, format: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="Swiss">Swiss</option>
-              <option value="Round Robin">Round Robin</option>
-              <option value="Knockout">Knockout</option>
-            </select>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Game Info</h4>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-gray-600 dark:text-gray-400">Result:</span> {game.result}</p>
+                <p><span className="text-gray-600 dark:text-gray-400">Time Control:</span> {game.timeControl}</p>
+                <p><span className="text-gray-600 dark:text-gray-400">Duration:</span> {Math.floor(game.duration / 60)}m {game.duration % 60}s</p>
+                <p><span className="text-gray-600 dark:text-gray-400">Moves:</span> {game.moves}</p>
+                <p><span className="text-gray-600 dark:text-gray-400">Type:</span> {game.gameType}</p>
+              </div>
+            </div>
+            <div>
+              <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Date & Time</h4>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-gray-600 dark:text-gray-400">Started:</span> {new Date(game.createdAt).toLocaleString()}</p>
+                {game.endedAt && (
+                  <p><span className="text-gray-600 dark:text-gray-400">Ended:</span> {new Date(game.endedAt).toLocaleString()}</p>
+                )}
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Time Control
-            </label>
-            <select
-              value={formData.timeControl}
-              onChange={(e) => setFormData({ ...formData, timeControl: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="Blitz">Blitz</option>
-              <option value="Rapid">Rapid</option>
-              <option value="Classical">Classical</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Max Participants
-            </label>
-            <input
-              type="number"
-              value={formData.maxParticipants}
-              onChange={(e) => setFormData({ ...formData, maxParticipants: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Prize Pool
-            </label>
-            <input
-              type="number"
-              value={formData.prizePool}
-              onChange={(e) => setFormData({ ...formData, prizePool: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Status
-            </label>
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="upcoming">Upcoming</option>
-              <option value="active">Active</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Start Time
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.startTime}
-              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              End Time
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.endTime}
-              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div className="flex space-x-3 pt-4">
+
+          <div className="flex space-x-3">
             <button
-              type="button"
+              onClick={onDownloadPGN}
+              className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+            >
+              Download PGN
+            </button>
+            <button
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500"
+              className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            >
-              Save
+              Close
             </button>
           </div>
-        </form>
-      </motion.div>
-    </motion.div>
-  );
-};
-
-// Create Tournament Modal Component
-const CreateTournamentModal = ({ onSave, onClose }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    format: 'Swiss',
-    timeControl: 'Rapid',
-    maxParticipants: 16,
-    prizePool: 100,
-    startTime: '',
-    endTime: ''
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave(formData);
-  };
-
-  return (
-    <motion.div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
-        initial={{ scale: 0.7 }}
-        animate={{ scale: 1 }}
-        exit={{ scale: 0.7 }}
-      >
-        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-          Create New Tournament
-        </h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Tournament Name
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Format
-            </label>
-            <select
-              value={formData.format}
-              onChange={(e) => setFormData({ ...formData, format: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="Swiss">Swiss</option>
-              <option value="Round Robin">Round Robin</option>
-              <option value="Knockout">Knockout</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Time Control
-            </label>
-            <select
-              value={formData.timeControl}
-              onChange={(e) => setFormData({ ...formData, timeControl: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="Blitz">Blitz</option>
-              <option value="Rapid">Rapid</option>
-              <option value="Classical">Classical</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Max Participants
-            </label>
-            <input
-              type="number"
-              value={formData.maxParticipants}
-              onChange={(e) => setFormData({ ...formData, maxParticipants: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Prize Pool
-            </label>
-            <input
-              type="number"
-              value={formData.prizePool}
-              onChange={(e) => setFormData({ ...formData, prizePool: parseInt(e.target.value) })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Start Time
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.startTime}
-              onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              End Time
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.endTime}
-              onChange={(e) => setFormData({ ...formData, endTime: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              required
-            />
-          </div>
-          <div className="flex space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-            >
-              Create
-            </button>
-          </div>
-        </form>
+        </div>
       </motion.div>
     </motion.div>
   );

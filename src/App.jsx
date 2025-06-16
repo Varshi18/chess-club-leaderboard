@@ -9,6 +9,7 @@ import AboutUs from './Pages/AboutUs/AboutUs';
 import Leaderboard from './Pages/Leaderboard/Leaderboard';
 import TournamentPage from './Pages/Tournaments/Tournament';
 import PlayChess from './Pages/PlayChess/PlayChess';
+import GamesPage from './Pages/Games/GamesPage';
 import Login from './Pages/Auth/Login';
 import Register from './Pages/Auth/Register';
 import AdminDashboard from './Pages/Admin/AdminDashboard';
@@ -28,6 +29,7 @@ const App = () => {
               <Route path="/about" element={<AboutUs />} />
               <Route path="/leaderboard" element={<Leaderboard />} />
               <Route path="/tournaments" element={<TournamentPage />} />
+              <Route path="/games" element={<GamesPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route 

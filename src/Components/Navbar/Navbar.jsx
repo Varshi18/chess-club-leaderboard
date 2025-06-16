@@ -37,6 +37,7 @@ const Navbar = () => {
             { path: '/about', label: 'About Us' },
             { path: '/leaderboard', label: 'Leaderboard' },
             { path: '/tournaments', label: 'Tournaments' },
+            { path: '/games', label: 'Games' },
             ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : []),
             ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
           ].map(({ path, label }) => (
@@ -124,6 +125,7 @@ const Navbar = () => {
               { path: '/about', label: 'About Us' },
               { path: '/leaderboard', label: 'Leaderboard' },
               { path: '/tournaments', label: 'Tournaments' },
+              { path: '/games', label: 'Games' },
               ...(isAuthenticated ? [{ path: '/play', label: 'Play Chess' }] : []),
               ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
             ].map(({ path, label }) => (
