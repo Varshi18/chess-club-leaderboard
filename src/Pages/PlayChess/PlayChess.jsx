@@ -11,34 +11,45 @@ const PlayChess = () => {
   const [gameId, setGameId] = useState(null);
   const [opponent, setOpponent] = useState(null);
   const [gameInProgress, setGameInProgress] = useState(false);
-  const [pgn, setPgn] = useState(''); // Store PGN from MultiplayerChess
+  const [pgn, setPgn] = useState('');
+  const [timeControl, setTimeControl] = useState(600); // New: Store time control
 
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
   }, []);
 
   const handleChallengePlayer = (friendData) => {
+    console.log('Challenging player:', friendData); // Debug log
+    if (!friendData?.id || !friendData?.username) {
+      console.error('Invalid friend data:', friendData);
+      return;
+    }
     const newGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setGameId(newGameId);
     setOpponent({
       id: friendData.id,
       username: friendData.username,
-      chessRating: friendData.chessRating,
+      chessRating: friendData.chessRating || 0,
     });
+    setTimeControl(friendData.timeControl || 600); // Use provided time control
     setActiveMode('multiplayer');
     setGameInProgress(true);
+    console.log('Challenge set up:', { gameId: newGameId, opponent: friendData, timeControl: friendData.timeControl });
   };
 
   const handleGameEnd = () => {
+    console.log('Ending game'); // Debug log
     setGameInProgress(false);
     setGameId(null);
     setOpponent(null);
+    setTimeControl(600); // Reset time control
     setActiveMode('friends');
-    setPgn(''); // Reset PGN on game end
+    setPgn('');
   };
 
   const handlePgnUpdate = (newPgn) => {
-    setPgn(newPgn); // Update PGN from MultiplayerChess
+    console.log('PGN updated:', newPgn); // Debug log
+    setPgn(newPgn);
   };
 
   const exportPgn = () => {
@@ -56,30 +67,11 @@ const PlayChess = () => {
   };
 
   const gameModes = [
-    {
-      id: 'practice',
-      title: 'Practice Mode',
-      description: 'Play against yourself or practice openings',
-      icon: '🎯',
-      color: 'from-blue-500 to-blue-600',
-    },
-    {
-      id: 'friends',
-      title: 'Play with Friends',
-      description: 'Challenge your friends to a game',
-      icon: '👥',
-      color: 'from-green-500 to-green-600',
-    },
-    {
-      id: 'tournaments',
-      title: 'Tournaments',
-      description: 'Join weekly tournaments and compete',
-      icon: '🏆',
-      color: 'from-yellow-500 to-yellow-600',
-    },
+    { id: 'practice', title: 'Practice Mode', description: 'Play against yourself or practice openings', icon: '🎯', color: 'from-blue-500 to-blue-600' },
+    { id: 'friends', title: 'Play with Friends', description: 'Challenge your friends to a game', icon: '👥', color: 'from-green-500 to-blue-600' },
+    { id: 'tournaments', title: 'Tournaments', description: 'Join weekly tournaments and compete', icon: '🏆', color: 'from-yellow-500 to-yellow-600' },
   ];
 
-  // Prevent navigation away during active game
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (gameInProgress) {
@@ -178,7 +170,9 @@ const PlayChess = () => {
                       <MultiplayerChess
                         gameMode="practice"
                         onPgnUpdate={handlePgnUpdate}
-                        trackCapturedPieces={true} // Prop to ensure captured pieces are tracked
+                        trackCapturedPieces={true}
+                        onGameEnd={handleGameEnd}
+                        initialTimeControl={timeControl}
                       />
                     </div>
                     <div className="w-full lg:w-1/3 max-w-[300px] mx-auto">
@@ -303,6 +297,7 @@ const PlayChess = () => {
                         onGameEnd={handleGameEnd}
                         onPgnUpdate={handlePgnUpdate}
                         trackCapturedPieces={true}
+                        initialTimeControl={timeControl}
                       />
                     </div>
                     <div className="w-full lg:w-1/3 max-w-[300px] mx-auto">
@@ -310,7 +305,8 @@ const PlayChess = () => {
                         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Game Info</h3>
                         {opponent && (
                           <p className="text-gray-600 dark:text-gray-400">
-                            Playing against {opponent.username} (Rating: {opponent.chessRating})
+                            Playing against {opponent.username} (Rating: {opponent.chessRating})<br />
+                            Time Control: {timeControl / 60} minutes
                           </p>
                         )}
                       </div>
@@ -320,7 +316,6 @@ const PlayChess = () => {
               )}
             </AnimatePresence>
 
-            {/* Game In Progress Warning */}
             {gameInProgress && (
               <motion.div
                 className="fixed bottom-4 right-4 bg-orange-600 text-white px-4 py-2 rounded-lg shadow-lg z-50"

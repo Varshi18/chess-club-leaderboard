@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '',
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000', // Use env variable or fallback to local backend
   headers: {
     'Content-Type': 'application/json',
   },
@@ -24,6 +24,7 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null); // New: Track API errors
   const [activeTab, setActiveTab] = useState('friends');
   const [showChallengeModal, setShowChallengeModal] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState(null);
@@ -35,24 +36,38 @@ const FriendsList = ({ onChallengePlayer }) => {
   }, []);
 
   const fetchFriends = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const response = await api.get('/api/friends');
       if (response.data.success) {
         setFriends(response.data.friends);
+      } else {
+        setError('Failed to load friends.');
       }
     } catch (error) {
       console.error('Error fetching friends:', error);
+      setError('Error loading friends. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const fetchFriendRequests = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const response = await api.get('/api/friends?type=requests');
       if (response.data.success) {
         setFriendRequests(response.data.requests);
+      } else {
+        setError('Failed to load friend requests.');
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error);
+      setError('Error loading friend requests. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -63,17 +78,19 @@ const FriendsList = ({ onChallengePlayer }) => {
     }
 
     setLoading(true);
-
+    setError(null);
     try {
       const response = await api.get(`/api/friends?q=${encodeURIComponent(query)}`);
       if (response.data.success) {
-        setSearchResults(response.data.users.filter((u) => u.id !== user.id));
+        setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
         setSearchResults([]);
+        setError('No users found.');
       }
     } catch (error) {
       console.error('Search error:', error);
       setSearchResults([]);
+      setError('Error searching users. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -88,9 +105,12 @@ const FriendsList = ({ onChallengePlayer }) => {
             user.id === userId ? { ...user, friendRequestSent: true } : user
           )
         );
+      } else {
+        setError('Failed to send friend request.');
       }
     } catch (error) {
       console.error('Error sending friend request:', error);
+      setError('Error sending friend request. Please try again.');
     }
   };
 
@@ -100,9 +120,12 @@ const FriendsList = ({ onChallengePlayer }) => {
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
+      } else {
+        setError('Failed to accept friend request.');
       }
     } catch (error) {
       console.error('Error accepting friend request:', error);
+      setError('Error accepting friend request. Please try again.');
     }
   };
 
@@ -111,31 +134,43 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.patch('/api/friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
+      } else {
+        setError('Failed to reject friend request.');
       }
     } catch (error) {
       console.error('Error rejecting friend request:', error);
+      setError('Error rejecting friend request. Please try again.');
     }
   };
 
   const handleChallengeClick = (friend) => {
+    console.log('Challenge clicked for friend:', friend); // Debug log
     setSelectedFriend(friend);
     setShowChallengeModal(true);
   };
 
   const sendChallenge = (timeControl) => {
     if (onChallengePlayer && selectedFriend) {
+      console.log('Sending challenge:', { friend: selectedFriend, timeControl }); // Debug log
       onChallengePlayer({
-        ...selectedFriend,
-        timeControl
+        id: selectedFriend.id,
+        username: selectedFriend.username,
+        chessRating: selectedFriend.chessRating || 0,
+        timeControl,
       });
+      setShowChallengeModal(false);
+      setSelectedFriend(null);
+    } else {
+      console.error('Challenge failed: Missing onChallengePlayer or selectedFriend');
+      setError('Failed to send challenge. Please try again.');
     }
-    setShowChallengeModal(false);
-    setSelectedFriend(null);
   };
 
   const getOnlineStatus = (lastSeen) => {
+    if (!lastSeen) return 'offline';
     const now = new Date();
     const lastSeenDate = new Date(lastSeen);
+    if (isNaN(lastSeenDate.getTime())) return 'offline'; // Handle invalid dates
     const diffMinutes = (now - lastSeenDate) / (1000 * 60);
     if (diffMinutes < 5) return 'online';
     if (diffMinutes < 30) return 'away';
@@ -156,6 +191,18 @@ const FriendsList = ({ onChallengePlayer }) => {
   return (
     <>
       <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
+        {/* Error Message */}
+        {error && (
+          <motion.div
+            className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {error}
+          </motion.div>
+        )}
+
         <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6">
           <button
             onClick={() => setActiveTab('friends')}
@@ -200,7 +247,11 @@ const FriendsList = ({ onChallengePlayer }) => {
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Your Friends</h3>
               <div className="space-y-3 max-h-96 overflow-y-auto">
-                {friends.length > 0 ? (
+                {loading ? (
+                  <div className="text-center py-4">
+                    <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  </div>
+                ) : friends.length > 0 ? (
                   friends.map((friend) => (
                     <motion.div
                       key={friend.id}
@@ -218,16 +269,16 @@ const FriendsList = ({ onChallengePlayer }) => {
                         </div>
                         <div>
                           <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{friend.username}</div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating}</div>
+                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating || 'N/A'}</div>
                         </div>
                       </div>
                       <div className="flex space-x-2">
                         <motion.button
                           onClick={() => handleChallengeClick(friend)}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          disabled={getOnlineStatus(friend.lastSeen) === 'offline'}
+                          disabled={getOnlineStatus(friend.lastSeen) !== 'online'} // Only allow challenges for online friends
                         >
                           Challenge
                         </motion.button>
@@ -330,7 +381,11 @@ const FriendsList = ({ onChallengePlayer }) => {
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Friend Requests</h3>
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {friendRequests.length > 0 ? (
+                {loading ? (
+                  <div className="text-center py-4">
+                    <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  </div>
+                ) : friendRequests.length > 0 ? (
                   friendRequests.map((request) => (
                     <motion.div
                       key={request.id}
@@ -408,7 +463,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                 {[
                   { name: 'Blitz', time: '5+0', minutes: 5 },
                   { name: 'Rapid', time: '10+0', minutes: 10 },
-                  { name: 'Classical', time: '30+0', minutes: 30 }
+                  { name: 'Classical', time: '30+0', minutes: 30 },
                 ].map((timeControl) => (
                   <motion.button
                     key={timeControl.name}
@@ -429,7 +484,10 @@ const FriendsList = ({ onChallengePlayer }) => {
 
               <div className="flex space-x-3">
                 <motion.button
-                  onClick={() => setShowChallengeModal(false)}
+                  onClick={() => {
+                    setShowChallengeModal(false);
+                    setSelectedFriend(null);
+                  }}
                   className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors duration-200"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
