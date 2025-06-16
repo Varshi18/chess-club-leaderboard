@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import GameTimer from '../GameTimer/GameTimer';
 import { useAuth } from '../../context/AuthContext';
 
-const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = null }) => {
+const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = null, onPgnUpdate, trackCapturedPieces, onGameEnd }) => {
   const [game, setGame] = useState(new Chess());
   const [gamePosition, setGamePosition] = useState(game.fen());
   const [moveHistory, setMoveHistory] = useState([]);
@@ -24,56 +24,68 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
   
   const { user } = useAuth();
 
+  useEffect(() => {
+    // Update PGN whenever the game state changes
+    if (onPgnUpdate) {
+      onPgnUpdate(game.pgn());
+    }
+  }, [game, onPgnUpdate]);
+
   const updateGameStatus = useCallback((gameInstance) => {
-    if (gameInstance.isCheckmate()) {
-      const winner = gameInstance.turn() === 'w' ? 'Black' : 'White';
-      setGameStatus(`Checkmate! ${winner} wins!`);
-      if (gameMode === 'multiplayer') {
-        setGameResult({ winner, reason: 'checkmate' });
-        setShowGameOver(true);
+    if (gameInstance.isGameOver()) {
+      let status, result;
+      if (gameInstance.isCheckmate()) {
+        const winner = gameInstance.turn() === 'w' ? 'Black' : 'White';
+        status = `Checkmate! ${winner} wins!`;
+        result = { winner, reason: 'checkmate' };
+      } else if (gameInstance.isDraw()) {
+        let reason = 'draw';
+        if (gameInstance.isStalemate()) {
+          status = 'Draw by stalemate';
+          reason = 'stalemate';
+        } else if (gameInstance.isThreefoldRepetition()) {
+          status = 'Draw by threefold repetition';
+          reason = 'repetition';
+        } else if (gameInstance.isInsufficientMaterial()) {
+          status = 'Draw by insufficient material';
+          reason = 'insufficient_material';
+        } else {
+          status = 'Draw by 50-move rule';
+          reason = 'fifty_move';
+        }
+        result = { winner: null, reason };
       }
-    } else if (gameInstance.isDraw()) {
-      let reason = 'draw';
-      if (gameInstance.isStalemate()) {
-        setGameStatus('Draw by stalemate');
-        reason = 'stalemate';
-      } else if (gameInstance.isThreefoldRepetition()) {
-        setGameStatus('Draw by threefold repetition');
-        reason = 'repetition';
-      } else if (gameInstance.isInsufficientMaterial()) {
-        setGameStatus('Draw by insufficient material');
-        reason = 'insufficient_material';
-      } else {
-        setGameStatus('Draw by 50-move rule');
-        reason = 'fifty_move';
-      }
+      setGameStatus(status);
       if (gameMode === 'multiplayer') {
-        setGameResult({ winner: null, reason });
+        setGameResult(result);
         setShowGameOver(true);
+        if (onGameEnd) {
+          onGameEnd();
+        }
       }
     } else if (gameInstance.isCheck()) {
       setGameStatus(`${gameInstance.turn() === 'w' ? 'White' : 'Black'} is in check`);
     } else {
       setGameStatus(`${gameInstance.turn() === 'w' ? 'White' : 'Black'} to move`);
     }
-  }, [gameMode]);
+  }, [gameMode, onGameEnd]);
 
   const updateCapturedPieces = useCallback((history) => {
-    const captured = { white: [], black: [] };
+    if (!trackCapturedPieces) return;
     
+    const captured = { white: [], black: [] };
     history.forEach(move => {
       if (move.captured) {
         const piece = move.captured;
-        const color = move.color === 'w' ? 'black' : 'white';
-        captured[color].push(piece);
+        const color = move.color === 'w' ? 'black' : 'white'; // Opponent's pieces are captured
+        captured[color].push(piece.toLowerCase());
       }
     });
     
     setCapturedPieces(captured);
-  }, []);
+  }, [trackCapturedPieces]);
 
   const makeMove = useCallback((sourceSquare, targetSquare, piece) => {
-    // In multiplayer, only allow moves if it's the player's turn and game has started
     if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
       return false;
     }
@@ -96,11 +108,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
         updateCapturedPieces(newHistory);
         setSelectedSquare(null);
         setPossibleMoves([]);
-        
-        // Switch active player
-        const newActivePlayer = game.turn() === 'w' ? 'black' : 'white';
-        setActivePlayer(newActivePlayer);
-        
+        setActivePlayer(game.turn() === 'w' ? 'white' : 'black');
         return true;
       }
     } catch (error) {
@@ -111,7 +119,6 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
   }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces]);
 
   const onSquareClick = useCallback((square) => {
-    // In multiplayer, only allow interaction if it's the player's turn and game has started
     if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
       return;
     }
@@ -164,14 +171,20 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
     setGameStarted(gameMode === 'practice');
     setWaitingForOpponent(gameMode === 'multiplayer');
     updateGameStatus(newGame);
-  }, [updateGameStatus, gameMode]);
+    if (onPgnUpdate) {
+      onPgnUpdate(newGame.pgn());
+    }
+  }, [updateGameStatus, gameMode, onPgnUpdate]);
 
   const handleTimeUp = useCallback((player) => {
     const winner = player === 'white' ? 'Black' : 'White';
     setGameResult({ winner, reason: 'timeout' });
     setShowGameOver(true);
     setIsPaused(true);
-  }, []);
+    if (onGameEnd) {
+      onGameEnd();
+    }
+  }, [onGameEnd]);
 
   const acceptGame = useCallback(() => {
     setGameStarted(true);
@@ -180,9 +193,10 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
   }, []);
 
   const declineGame = useCallback(() => {
-    // Return to friends list or previous state
-    window.history.back();
-  }, []);
+    if (onGameEnd) {
+      onGameEnd();
+    }
+  }, [onGameEnd]);
 
   const customSquareStyles = {};
   
@@ -201,14 +215,14 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
 
   const getPieceSymbol = (piece) => {
     const symbols = {
-      'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',
-      'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔'
+      p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
+      P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔'
     };
     return symbols[piece] || piece;
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6">
+    <div className="p-4 sm:p-6">
       <div className="grid lg:grid-cols-4 gap-6 sm:gap-8">
         {/* Timers */}
         {gameMode !== 'practice' && gameStarted && (
@@ -238,7 +252,7 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="aspect-square max-w-full mx-auto">
+            <div className="aspect-square max-w-[500px] mx-auto">
               <Chessboard
                 position={gamePosition}
                 onPieceDrop={onPieceDrop}
@@ -360,14 +374,14 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                   <AnimatePresence>
                     {capturedPieces.white.map((piece, index) => (
                       <motion.span 
-                        key={index} 
+                        key={`white-${piece}-${index}`} 
                         className="text-2xl"
                         initial={{ scale: 0, rotate: 180 }}
                         animate={{ scale: 1, rotate: 0 }}
                         exit={{ scale: 0, rotate: -180 }}
                         transition={{ duration: 0.3 }}
                       >
-                        {getPieceSymbol(piece.toUpperCase())}
+                        {getPieceSymbol(piece.toLowerCase())}
                       </motion.span>
                     ))}
                   </AnimatePresence>
@@ -382,14 +396,14 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
                   <AnimatePresence>
                     {capturedPieces.black.map((piece, index) => (
                       <motion.span 
-                        key={index} 
+                        key={`black-${piece}-${index}`} 
                         className="text-2xl"
                         initial={{ scale: 0, rotate: 180 }}
                         animate={{ scale: 1, rotate: 0 }}
                         exit={{ scale: 0, rotate: -180 }}
                         transition={{ duration: 0.3 }}
                       >
-                        {getPieceSymbol(piece.toLowerCase())}
+                        {getPieceSymbol(piece.toUpperCase())}
                       </motion.span>
                     ))}
                   </AnimatePresence>
@@ -409,13 +423,13 @@ const MultiplayerChess = ({ gameMode = 'practice', gameId = null, opponent = nul
             transition={{ duration: 0.5, delay: 0.5 }}
           >
             <h3 className="text-lg sm:text-xl font-bold mb-4 text-gray-900 dark:text-white">Move History</h3>
-            <div className="max-h-48 overflow-y-auto">
+            <div className="max-h-48 overflow-y-auto pr-2">
               {moveHistory.length > 0 ? (
                 <div className="space-y-1">
                   <AnimatePresence>
                     {moveHistory.map((move, index) => (
                       <motion.div 
-                        key={index} 
+                        key={`move-${index}-${move.san}`} 
                         className="flex justify-between items-center py-1 px-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                         initial={{ x: -20, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
