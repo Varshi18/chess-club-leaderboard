@@ -235,9 +235,9 @@ const MultiplayerChess = ({
 
   return (
     <div className="p-4 sm:p-6">
-      <div className="grid lg:grid-cols-4 gap-6 sm:gap-8">
+      <div className="grid lg:grid-cols-5 gap-6 sm:gap-8">
         {gameMode !== 'practice' && gameStarted && (
-          <div className="lg:col-span-1 space-y-4">
+          <div className="lg:col-span-1 space-y-6 min-w-[200px]">
             <GameTimer
               initialTime={timeControl.black}
               isActive={activePlayer === 'black' && !isPaused}
@@ -255,7 +255,7 @@ const MultiplayerChess = ({
           </div>
         )}
 
-        <div className={gameMode === 'practice' ? 'lg:col-span-3' : 'lg:col-span-2'}>
+        <div className={gameMode === 'practice' ? 'lg:col-span-4' : 'lg:col-span-3'}>
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ scale: 0.9, opacity: 0 }}
@@ -280,7 +280,7 @@ const MultiplayerChess = ({
           </motion.div>
         </div>
 
-        <div className="lg:col-span-1 space-y-4 sm:space-y-6">
+        <div className="lg:col-span-1 space-y-6 min-w-[200px]">
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}

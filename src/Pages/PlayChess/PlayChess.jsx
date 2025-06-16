@@ -4,6 +4,7 @@ import MultiplayerChess from '../../Components/MultiplayerChess/MultiplayerChess
 import FriendsList from '../../Components/FriendsList/FriendsList';
 import TournamentSystem from '../../Components/TournamentSystem/TournamentSystem';
 import ThreeBackground from '../../Components/ThreeBackground/ThreeBackground';
+import { useAuth } from '../../context/AuthContext';
 
 const PlayChess = () => {
   const [isVisible, setIsVisible] = useState(false);
@@ -13,6 +14,7 @@ const PlayChess = () => {
   const [gameInProgress, setGameInProgress] = useState(false);
   const [pgn, setPgn] = useState('');
   const [timeControl, setTimeControl] = useState(600);
+  const { user } = useAuth();
 
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
@@ -20,8 +22,8 @@ const PlayChess = () => {
 
   const handleChallengePlayer = (friendData) => {
     console.log('Challenging player:', friendData);
-    if (!friendData?.id || !friendData?.username) {
-      console.error('Invalid friend data:', friendData);
+    if (!friendData?.id || !friendData?.username || friendData.id === user?.id) {
+      console.error('Invalid friend data or attempting to challenge self:', friendData);
       return;
     }
     const newGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -45,6 +47,13 @@ const PlayChess = () => {
     setTimeControl(600);
     setActiveMode('friends');
     setPgn('');
+  };
+
+  const handleResign = () => {
+    if (window.confirm('Are you sure you want to resign? This will end the game.')) {
+      console.log('Player resigned');
+      handleGameEnd();
+    }
   };
 
   const handlePgnUpdate = (newPgn) => {
@@ -74,25 +83,21 @@ const PlayChess = () => {
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (gameInProgress) {
+      if (gameInProgress && activeMode === 'multiplayer') {
         e.preventDefault();
-        e.returnValue = 'You have an active game. Are you sure you want to leave?';
+        e.returnValue = 'You are in a multiplayer game. Resign to leave the game.';
         return e.returnValue;
       }
     };
 
     const handlePopState = (e) => {
-      if (gameInProgress) {
-        const confirmLeave = window.confirm('You have an active game. Are you sure you want to leave?');
-        if (!confirmLeave) {
-          window.history.pushState(null, '', window.location.pathname);
-        } else {
-          handleGameEnd();
-        }
+      if (gameInProgress && activeMode === 'multiplayer') {
+        alert('You cannot leave a multiplayer game. Please resign to exit.');
+        window.history.pushState(null, '', window.location.pathname);
       }
     };
 
-    if (gameInProgress) {
+    if (gameInProgress && activeMode === 'multiplayer') {
       window.addEventListener('beforeunload', handleBeforeUnload);
       window.addEventListener('popstate', handlePopState);
       window.history.pushState(null, '', window.location.pathname);
@@ -102,7 +107,7 @@ const PlayChess = () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [gameInProgress]);
+  }, [gameInProgress, activeMode]);
 
   return (
     <div className="min-h-screen relative overflow-hidden pt-20">
@@ -175,7 +180,7 @@ const PlayChess = () => {
                         initialTimeControl={timeControl}
                       />
                     </div>
-                    <div className="w-full lg:w-1/3 max-w-[300px] mx-auto">
+                    <div className="w-full lg:w-1/3 max-w-[400px] mx-auto">
                       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
                         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Game Controls</h3>
                         <motion.button
@@ -272,12 +277,12 @@ const PlayChess = () => {
                 >
                   <div className="mb-8 flex justify-center gap-4">
                     <motion.button
-                      onClick={handleGameEnd}
+                      onClick={handleResign}
                       className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-xl hover:from-red-600 hover:to-red-700 transition-all duration-300"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                     >
-                      ← End Game & Return
+                      Resign
                     </motion.button>
                     <motion.button
                       onClick={exportPgn}
@@ -300,7 +305,7 @@ const PlayChess = () => {
                         initialTimeControl={timeControl}
                       />
                     </div>
-                    <div className="w-full lg:w-1/3 max-w-[300px] mx-auto">
+                    <div className="w-full lg:w-1/3 max-w-[400px] mx-auto">
                       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
                         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Game Info</h3>
                         {opponent && (

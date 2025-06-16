@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '', // Empty baseURL for Vercel serverless, configurable via .env
+  baseURL: import.meta.env.VITE_API_URL || '', // Empty for Vercel serverless, configurable via .env
   headers: {
     'Content-Type': 'application/json',
   },
@@ -47,17 +47,17 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/api/friends');
+      const response = await api.get('/friends'); // Corrected path: /friends
       if (response.data.success) {
         setFriends(response.data.friends);
       } else {
         setError('Failed to load friends. Using fallback friend for testing.');
-        setFriends([fallbackFriend]); // Use fallback friend
+        setFriends([fallbackFriend]);
       }
     } catch (error) {
       console.error('Error fetching friends:', error.message);
       setError(`Unable to connect to server. Using fallback friend for testing. Base URL: ${api.defaults.baseURL || 'Vercel /api'}`);
-      setFriends([fallbackFriend]); // Use fallback friend
+      setFriends([fallbackFriend]);
     } finally {
       setLoading(false);
     }
@@ -67,7 +67,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/api/friends?type=requests');
+      const response = await api.get('/friends?type=requests'); // Corrected path: /friends?type=requests
       if (response.data.success) {
         setFriendRequests(response.data.requests);
       } else {
@@ -90,7 +90,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/api/friends?q=${encodeURIComponent(query)}`);
+      const response = await api.get(`/friends?q=${encodeURIComponent(query)}`);
       if (response.data.success) {
         setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
@@ -108,7 +108,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const sendFriendRequest = async (userId) => {
     try {
-      const response = await api.post('/api/friends', { userId });
+      const response = await api.post('/friends', { userId });
       if (response.data.success) {
         setSearchResults((prev) =>
           prev.map((user) =>
@@ -126,7 +126,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('/api/friends', { requestId, action: 'accept' });
+      const response = await api.patch('/friends', { requestId, action: 'accept' });
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
@@ -141,7 +141,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const rejectFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('/api/friends', { requestId, action: 'reject' });
+      const response = await api.patch('/friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
       } else {
@@ -154,13 +154,17 @@ const FriendsList = ({ onChallengePlayer }) => {
   };
 
   const handleChallengeClick = (friend) => {
+    if (friend.id === user?.id) {
+      setError('Cannot challenge yourself.');
+      return;
+    }
     console.log('Challenge clicked for friend:', friend);
     setSelectedFriend(friend);
     setShowChallengeModal(true);
   };
 
   const sendChallenge = (timeControl) => {
-    if (onChallengePlayer && selectedFriend) {
+    if (onChallengePlayer && selectedFriend && selectedFriend.id !== user?.id) {
       console.log('Sending challenge:', { friend: selectedFriend, timeControl });
       onChallengePlayer({
         id: selectedFriend.id,
@@ -171,8 +175,8 @@ const FriendsList = ({ onChallengePlayer }) => {
       setShowChallengeModal(false);
       setSelectedFriend(null);
     } else {
-      console.error('Challenge failed: Missing onChallengePlayer or selectedFriend');
-      setError('Failed to send challenge. Please try again.');
+      console.error('Challenge failed: Invalid friend or attempting to challenge self');
+      setError('Failed to send challenge. Cannot challenge yourself.');
     }
   };
 
@@ -287,7 +291,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                           className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          disabled={getOnlineStatus(friend.lastSeen) !== 'online'}
+                          disabled={getOnlineStatus(friend.lastSeen) !== 'online' || friend.id === user?.id}
                         >
                           Challenge
                         </motion.button>
