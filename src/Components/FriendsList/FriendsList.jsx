@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000', // Use env variable or fallback to local backend
+  baseURL: import.meta.env.VITE_API_URL || '', // Empty baseURL for Vercel serverless, configurable via .env
   headers: {
     'Content-Type': 'application/json',
   },
@@ -24,11 +24,19 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null); // New: Track API errors
+  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('friends');
   const [showChallengeModal, setShowChallengeModal] = useState(false);
   const [selectedFriend, setSelectedFriend] = useState(null);
   const { user } = useAuth();
+
+  // Fallback friend for testing
+  const fallbackFriend = {
+    id: 'test123',
+    username: 'TestOpponent',
+    chessRating: 1500,
+    lastSeen: new Date().toISOString(),
+  };
 
   useEffect(() => {
     fetchFriends();
@@ -43,11 +51,13 @@ const FriendsList = ({ onChallengePlayer }) => {
       if (response.data.success) {
         setFriends(response.data.friends);
       } else {
-        setError('Failed to load friends.');
+        setError('Failed to load friends. Using fallback friend for testing.');
+        setFriends([fallbackFriend]); // Use fallback friend
       }
     } catch (error) {
-      console.error('Error fetching friends:', error);
-      setError('Error loading friends. Please try again.');
+      console.error('Error fetching friends:', error.message);
+      setError(`Unable to connect to server. Using fallback friend for testing. Base URL: ${api.defaults.baseURL || 'Vercel /api'}`);
+      setFriends([fallbackFriend]); // Use fallback friend
     } finally {
       setLoading(false);
     }
@@ -64,8 +74,8 @@ const FriendsList = ({ onChallengePlayer }) => {
         setError('Failed to load friend requests.');
       }
     } catch (error) {
-      console.error('Error fetching friend requests:', error);
-      setError('Error loading friend requests. Please try again.');
+      console.error('Error fetching friend requests:', error.message);
+      setError('Unable to connect to server for friend requests.');
     } finally {
       setLoading(false);
     }
@@ -88,7 +98,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         setError('No users found.');
       }
     } catch (error) {
-      console.error('Search error:', error);
+      console.error('Search error:', error.message);
       setSearchResults([]);
       setError('Error searching users. Please try again.');
     } finally {
@@ -109,7 +119,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         setError('Failed to send friend request.');
       }
     } catch (error) {
-      console.error('Error sending friend request:', error);
+      console.error('Error sending friend request:', error.message);
       setError('Error sending friend request. Please try again.');
     }
   };
@@ -124,7 +134,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         setError('Failed to accept friend request.');
       }
     } catch (error) {
-      console.error('Error accepting friend request:', error);
+      console.error('Error accepting friend request:', error.message);
       setError('Error accepting friend request. Please try again.');
     }
   };
@@ -138,20 +148,20 @@ const FriendsList = ({ onChallengePlayer }) => {
         setError('Failed to reject friend request.');
       }
     } catch (error) {
-      console.error('Error rejecting friend request:', error);
+      console.error('Error rejecting friend request:', error.message);
       setError('Error rejecting friend request. Please try again.');
     }
   };
 
   const handleChallengeClick = (friend) => {
-    console.log('Challenge clicked for friend:', friend); // Debug log
+    console.log('Challenge clicked for friend:', friend);
     setSelectedFriend(friend);
     setShowChallengeModal(true);
   };
 
   const sendChallenge = (timeControl) => {
     if (onChallengePlayer && selectedFriend) {
-      console.log('Sending challenge:', { friend: selectedFriend, timeControl }); // Debug log
+      console.log('Sending challenge:', { friend: selectedFriend, timeControl });
       onChallengePlayer({
         id: selectedFriend.id,
         username: selectedFriend.username,
@@ -170,7 +180,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     if (!lastSeen) return 'offline';
     const now = new Date();
     const lastSeenDate = new Date(lastSeen);
-    if (isNaN(lastSeenDate.getTime())) return 'offline'; // Handle invalid dates
+    if (isNaN(lastSeenDate.getTime())) return 'offline';
     const diffMinutes = (now - lastSeenDate) / (1000 * 60);
     if (diffMinutes < 5) return 'online';
     if (diffMinutes < 30) return 'away';
@@ -191,7 +201,6 @@ const FriendsList = ({ onChallengePlayer }) => {
   return (
     <>
       <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
-        {/* Error Message */}
         {error && (
           <motion.div
             className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-sm"
@@ -278,7 +287,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                           className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          disabled={getOnlineStatus(friend.lastSeen) !== 'online'} // Only allow challenges for online friends
+                          disabled={getOnlineStatus(friend.lastSeen) !== 'online'}
                         >
                           Challenge
                         </motion.button>
@@ -288,7 +297,9 @@ const FriendsList = ({ onChallengePlayer }) => {
                 ) : (
                   <div className="text-center py-8">
                     <div className="text-4xl mb-4">👥</div>
-                    <p className="text-gray-500 dark:text-gray-400">No friends yet. Add some friends to start playing!</p>
+                    <p className="text-gray-500 dark:text-gray-400">
+                      {error ? 'Failed to load friends due to server error.' : 'No friends yet. Add some friends to start playing!'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -434,7 +445,6 @@ const FriendsList = ({ onChallengePlayer }) => {
         </AnimatePresence>
       </div>
 
-      {/* Challenge Modal */}
       <AnimatePresence>
         {showChallengeModal && selectedFriend && (
           <motion.div

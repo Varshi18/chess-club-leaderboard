@@ -32,13 +32,6 @@ const MultiplayerChess = ({
   
   const { user } = useAuth();
 
-  useEffect(() => {
-    console.log('MultiplayerChess mounted:', { gameMode, gameId, opponent, gameStarted, waitingForOpponent, initialTimeControl }); // Debug log
-    if (onPgnUpdate) {
-      onPgnUpdate(game.pgn());
-    }
-  }, [game, onPgnUpdate, gameMode, gameId, opponent, gameStarted, waitingForOpponent, initialTimeControl]);
-
   const updateGameStatus = useCallback((gameInstance) => {
     if (gameInstance.isGameOver()) {
       let status, result;
@@ -91,12 +84,12 @@ const MultiplayerChess = ({
     });
     
     setCapturedPieces(captured);
-    console.log('Captured pieces updated:', captured); // Debug log
+    console.log('Captured pieces updated:', captured);
   }, [trackCapturedPieces]);
 
   const makeMove = useCallback((sourceSquare, targetSquare, piece) => {
     if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
-      console.log('Move blocked:', { gameStarted, turn: game.turn(), playerColor }); // Debug log
+      console.log('Move blocked:', { gameStarted, turn: game.turn(), playerColor });
       return false;
     }
 
@@ -119,7 +112,11 @@ const MultiplayerChess = ({
         setSelectedSquare(null);
         setPossibleMoves([]);
         setActivePlayer(game.turn() === 'w' ? 'white' : 'black');
-        console.log('Move made:', move); // Debug log
+        if (onPgnUpdate) {
+          const pgn = gameCopy.pgn({ newline_char: '\n' });
+          onPgnUpdate(pgn);
+          console.log('Move made:', move, 'PGN:', pgn);
+        }
         return true;
       }
     } catch (error) {
@@ -127,7 +124,7 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces]);
+  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate]);
 
   const onSquareClick = useCallback((square) => {
     if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
@@ -183,9 +180,9 @@ const MultiplayerChess = ({
     setWaitingForOpponent(gameMode === 'multiplayer' && opponent != null);
     updateGameStatus(newGame);
     if (onPgnUpdate) {
-      onPgnUpdate(newGame.pgn());
+      onPgnUpdate(newGame.pgn({ newline_char: '\n' }));
     }
-    console.log('Game reset:', { gameMode, gameStarted, waitingForOpponent, initialTimeControl }); // Debug log
+    console.log('Game reset:', { gameMode, gameStarted, waitingForOpponent, initialTimeControl });
   }, [updateGameStatus, gameMode, onPgnUpdate, opponent, initialTimeControl]);
 
   const handleTimeUp = useCallback((player) => {
@@ -196,21 +193,21 @@ const MultiplayerChess = ({
     if (onGameEnd) {
       onGameEnd();
     }
-    console.log('Time up:', { player, winner }); // Debug log
+    console.log('Time up:', { player, winner });
   }, [onGameEnd]);
 
   const acceptGame = useCallback(() => {
     setGameStarted(true);
     setWaitingForOpponent(false);
     setIsPaused(false);
-    console.log('Game accepted:', { gameId, opponent, timeControl }); // Debug log
+    console.log('Game accepted:', { gameId, opponent, timeControl });
   }, [gameId, opponent, timeControl]);
 
   const declineGame = useCallback(() => {
     if (onGameEnd) {
       onGameEnd();
     }
-    console.log('Game declined:', { gameId, opponent }); // Debug log
+    console.log('Game declined:', { gameId, opponent });
   }, [onGameEnd, gameId, opponent]);
 
   const customSquareStyles = {};
@@ -239,7 +236,6 @@ const MultiplayerChess = ({
   return (
     <div className="p-4 sm:p-6">
       <div className="grid lg:grid-cols-4 gap-6 sm:gap-8">
-        {/* Timers */}
         {gameMode !== 'practice' && gameStarted && (
           <div className="lg:col-span-1 space-y-4">
             <GameTimer
@@ -259,7 +255,6 @@ const MultiplayerChess = ({
           </div>
         )}
 
-        {/* Chess Board */}
         <div className={gameMode === 'practice' ? 'lg:col-span-3' : 'lg:col-span-2'}>
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
@@ -285,9 +280,7 @@ const MultiplayerChess = ({
           </motion.div>
         </div>
 
-        {/* Game Info Panel */}
         <div className="lg:col-span-1 space-y-4 sm:space-y-6">
-          {/* Game Status */}
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}
@@ -321,7 +314,6 @@ const MultiplayerChess = ({
             )}
           </motion.div>
 
-          {/* Game Controls */}
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}
@@ -375,7 +367,6 @@ const MultiplayerChess = ({
             </div>
           </motion.div>
 
-          {/* Captured Pieces */}
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}
@@ -431,7 +422,6 @@ const MultiplayerChess = ({
             </div>
           </motion.div>
 
-          {/* Move History */}
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}
@@ -472,7 +462,6 @@ const MultiplayerChess = ({
         </div>
       </div>
 
-      {/* Game Over Modal */}
       <AnimatePresence>
         {showGameOver && gameResult && (
           <motion.div
@@ -535,7 +524,6 @@ const MultiplayerChess = ({
         )}
       </AnimatePresence>
 
-      {/* Game Invitation Modal */}
       <AnimatePresence>
         {gameMode === 'multiplayer' && waitingForOpponent && opponent && (
           <motion.div

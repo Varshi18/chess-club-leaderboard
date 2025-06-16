@@ -12,14 +12,14 @@ const PlayChess = () => {
   const [opponent, setOpponent] = useState(null);
   const [gameInProgress, setGameInProgress] = useState(false);
   const [pgn, setPgn] = useState('');
-  const [timeControl, setTimeControl] = useState(600); // New: Store time control
+  const [timeControl, setTimeControl] = useState(600);
 
   useEffect(() => {
     setTimeout(() => setIsVisible(true), 100);
   }, []);
 
   const handleChallengePlayer = (friendData) => {
-    console.log('Challenging player:', friendData); // Debug log
+    console.log('Challenging player:', friendData);
     if (!friendData?.id || !friendData?.username) {
       console.error('Invalid friend data:', friendData);
       return;
@@ -31,24 +31,24 @@ const PlayChess = () => {
       username: friendData.username,
       chessRating: friendData.chessRating || 0,
     });
-    setTimeControl(friendData.timeControl || 600); // Use provided time control
+    setTimeControl(friendData.timeControl || 600);
     setActiveMode('multiplayer');
     setGameInProgress(true);
     console.log('Challenge set up:', { gameId: newGameId, opponent: friendData, timeControl: friendData.timeControl });
   };
 
   const handleGameEnd = () => {
-    console.log('Ending game'); // Debug log
+    console.log('Ending game');
     setGameInProgress(false);
     setGameId(null);
     setOpponent(null);
-    setTimeControl(600); // Reset time control
+    setTimeControl(600);
     setActiveMode('friends');
     setPgn('');
   };
 
   const handlePgnUpdate = (newPgn) => {
-    console.log('PGN updated:', newPgn); // Debug log
+    console.log('PGN updated:', newPgn);
     setPgn(newPgn);
   };
 
