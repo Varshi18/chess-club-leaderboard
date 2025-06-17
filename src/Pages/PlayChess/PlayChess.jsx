@@ -14,6 +14,7 @@ const PlayChess = () => {
   const [gameInProgress, setGameInProgress] = useState(false);
   const [pgn, setPgn] = useState('');
   const [timeControl, setTimeControl] = useState(600);
+  const [allMoves, setAllMoves] = useState([]); // Store all moves for export
   const { user } = useAuth();
 
   useEffect(() => {
@@ -36,6 +37,7 @@ const PlayChess = () => {
     setTimeControl(friendData.timeControl || 600);
     setActiveMode('multiplayer');
     setGameInProgress(true);
+    setAllMoves([]); // Reset moves for new game
     console.log('Challenge set up:', { gameId: newGameId, opponent: friendData, timeControl: friendData.timeControl });
   };
 
@@ -46,7 +48,7 @@ const PlayChess = () => {
     setOpponent(null);
     setTimeControl(600);
     setActiveMode('friends');
-    setPgn('');
+    // Don't reset PGN and moves here - keep them for export
   };
 
   const handleResign = () => {
@@ -59,6 +61,31 @@ const PlayChess = () => {
   const handlePgnUpdate = (newPgn) => {
     console.log('PGN updated:', newPgn);
     setPgn(newPgn);
+    
+    // Parse moves from PGN for the moves list
+    if (newPgn) {
+      const lines = newPgn.split('\n');
+      const moveLines = lines.filter(line => !line.startsWith('[') && line.trim() !== '');
+      const movesText = moveLines.join(' ');
+      const moveMatches = movesText.match(/\d+\.\s*([^\s]+)(?:\s+([^\s]+))?/g);
+      
+      if (moveMatches) {
+        const moves = [];
+        moveMatches.forEach(match => {
+          const parts = match.split(/\d+\.\s*/)[1];
+          if (parts) {
+            const [whiteMove, blackMove] = parts.split(/\s+/);
+            if (whiteMove && whiteMove !== '1-0' && whiteMove !== '0-1' && whiteMove !== '1/2-1/2') {
+              moves.push(whiteMove);
+            }
+            if (blackMove && blackMove !== '1-0' && blackMove !== '0-1' && blackMove !== '1/2-1/2') {
+              moves.push(blackMove);
+            }
+          }
+        });
+        setAllMoves(moves);
+      }
+    }
   };
 
   const exportPgn = () => {
@@ -81,6 +108,7 @@ const PlayChess = () => {
     { id: 'tournaments', title: 'Tournaments', description: 'Join weekly tournaments and compete', icon: '🏆', color: 'from-yellow-500 to-yellow-600' },
   ];
 
+  // Prevent navigation during multiplayer games
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (gameInProgress && activeMode === 'multiplayer') {
@@ -92,6 +120,7 @@ const PlayChess = () => {
 
     const handlePopState = (e) => {
       if (gameInProgress && activeMode === 'multiplayer') {
+        e.preventDefault();
         alert('You cannot leave a multiplayer game. Please resign to exit.');
         window.history.pushState(null, '', window.location.pathname);
       }
@@ -170,8 +199,8 @@ const PlayChess = () => {
                       ))}
                     </div>
                   </div>
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="w-full lg:w-2/3 max-w-[600px] mx-auto">
+                  <div className="flex flex-col xl:flex-row gap-6">
+                    <div className="flex-1">
                       <MultiplayerChess
                         gameMode="practice"
                         onPgnUpdate={handlePgnUpdate}
@@ -180,17 +209,43 @@ const PlayChess = () => {
                         initialTimeControl={timeControl}
                       />
                     </div>
-                    <div className="w-full lg:w-1/3 max-w-[400px] mx-auto">
+                    <div className="w-full xl:w-80 space-y-4">
                       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
-                        <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Game Controls</h3>
+                        <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Game Controls</h3>
                         <motion.button
                           onClick={exportPgn}
-                          className="w-full px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300"
+                          className="w-full px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300 mb-4"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                         >
                           Export PGN
                         </motion.button>
+                      </div>
+                      
+                      {/* Move History */}
+                      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
+                        <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Move List</h3>
+                        <div className="max-h-64 overflow-y-auto">
+                          {allMoves.length > 0 ? (
+                            <div className="space-y-1">
+                              {Array.from({ length: Math.ceil(allMoves.length / 2) }, (_, i) => (
+                                <div key={i} className="flex items-center justify-between py-1 px-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <span className="text-gray-600 dark:text-gray-400 w-8">
+                                    {i + 1}.
+                                  </span>
+                                  <span className="font-mono text-gray-900 dark:text-white flex-1 text-left">
+                                    {allMoves[i * 2] || ''}
+                                  </span>
+                                  <span className="font-mono text-gray-900 dark:text-white flex-1 text-left">
+                                    {allMoves[i * 2 + 1] || ''}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-400 dark:text-gray-500 text-sm text-center">No moves yet</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -228,7 +283,9 @@ const PlayChess = () => {
                       ))}
                     </div>
                   </div>
-                  <FriendsList onChallengePlayer={handleChallengePlayer} />
+                  <div className="flex justify-center">
+                    <FriendsList onChallengePlayer={handleChallengePlayer} />
+                  </div>
                 </motion.div>
               )}
 
@@ -293,8 +350,8 @@ const PlayChess = () => {
                       Export PGN
                     </motion.button>
                   </div>
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="w-full lg:w-2/3 max-w-[600px] mx-auto">
+                  <div className="flex flex-col xl:flex-row gap-6">
+                    <div className="flex-1">
                       <MultiplayerChess
                         gameMode="multiplayer"
                         gameId={gameId}
@@ -305,15 +362,48 @@ const PlayChess = () => {
                         initialTimeControl={timeControl}
                       />
                     </div>
-                    <div className="w-full lg:w-1/3 max-w-[400px] mx-auto">
+                    <div className="w-full xl:w-80 space-y-4">
                       <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
                         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">Game Info</h3>
                         {opponent && (
-                          <p className="text-gray-600 dark:text-gray-400">
-                            Playing against {opponent.username} (Rating: {opponent.chessRating})<br />
-                            Time Control: {timeControl / 60} minutes
-                          </p>
+                          <div className="space-y-2 text-sm">
+                            <p className="text-gray-600 dark:text-gray-400">
+                              <span className="font-medium">Opponent:</span> {opponent.username}
+                            </p>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              <span className="font-medium">Rating:</span> {opponent.chessRating}
+                            </p>
+                            <p className="text-gray-600 dark:text-gray-400">
+                              <span className="font-medium">Time Control:</span> {timeControl / 60} minutes
+                            </p>
+                          </div>
                         )}
+                      </div>
+                      
+                      {/* Move History */}
+                      <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg">
+                        <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Move List</h3>
+                        <div className="max-h-64 overflow-y-auto">
+                          {allMoves.length > 0 ? (
+                            <div className="space-y-1">
+                              {Array.from({ length: Math.ceil(allMoves.length / 2) }, (_, i) => (
+                                <div key={i} className="flex items-center justify-between py-1 px-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <span className="text-gray-600 dark:text-gray-400 w-8">
+                                    {i + 1}.
+                                  </span>
+                                  <span className="font-mono text-gray-900 dark:text-white flex-1 text-left">
+                                    {allMoves[i * 2] || ''}
+                                  </span>
+                                  <span className="font-mono text-gray-900 dark:text-white flex-1 text-left">
+                                    {allMoves[i * 2 + 1] || ''}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-gray-400 dark:text-gray-500 text-sm text-center">No moves yet</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>

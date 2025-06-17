@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '', // Empty for Vercel serverless, configurable via .env
+  baseURL: '/api', // Fixed: Remove duplicate /api
   headers: {
     'Content-Type': 'application/json',
   },
@@ -47,7 +47,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/friends'); // Corrected path: /friends
+      const response = await api.get('/friends');
       if (response.data.success) {
         setFriends(response.data.friends);
       } else {
@@ -56,7 +56,7 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching friends:', error.message);
-      setError(`Unable to connect to server. Using fallback friend for testing. Base URL: ${api.defaults.baseURL || 'Vercel /api'}`);
+      setError(`Unable to connect to server. Using fallback friend for testing.`);
       setFriends([fallbackFriend]);
     } finally {
       setLoading(false);
@@ -64,20 +64,13 @@ const FriendsList = ({ onChallengePlayer }) => {
   };
 
   const fetchFriendRequests = async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const response = await api.get('/friends?type=requests'); // Corrected path: /friends?type=requests
+      const response = await api.get('/friends?type=requests');
       if (response.data.success) {
         setFriendRequests(response.data.requests);
-      } else {
-        setError('Failed to load friend requests.');
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error.message);
-      setError('Unable to connect to server for friend requests.');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -92,6 +85,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.get(`/friends?q=${encodeURIComponent(query)}`);
       if (response.data.success) {
+        // Filter out current user from search results
         setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
         setSearchResults([]);
@@ -154,6 +148,7 @@ const FriendsList = ({ onChallengePlayer }) => {
   };
 
   const handleChallengeClick = (friend) => {
+    // Prevent challenging self
     if (friend.id === user?.id) {
       setError('Cannot challenge yourself.');
       return;
@@ -204,7 +199,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   return (
     <>
-      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700">
+      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700 w-full min-w-[350px]">
         {error && (
           <motion.div
             className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-sm"
@@ -273,19 +268,19 @@ const FriendsList = ({ onChallengePlayer }) => {
                       animate={{ opacity: 1, y: 0 }}
                       whileHover={{ scale: 1.02 }}
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="relative">
                           <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                             {friend.username[0].toUpperCase()}
                           </div>
                           <div className={`absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 ${getStatusColor(getOnlineStatus(friend.lastSeen))} rounded-full border-2 border-white dark:border-gray-700`}></div>
                         </div>
-                        <div>
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{friend.username}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{friend.username}</div>
                           <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating || 'N/A'}</div>
                         </div>
                       </div>
-                      <div className="flex space-x-2">
+                      <div className="flex space-x-2 ml-2">
                         <motion.button
                           onClick={() => handleChallengeClick(friend)}
                           className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
@@ -345,12 +340,12 @@ const FriendsList = ({ onChallengePlayer }) => {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                           {user.username[0].toUpperCase()}
                         </div>
-                        <div>
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{user.username}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{user.username}</div>
                           <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
                         </div>
                       </div>
@@ -408,16 +403,16 @@ const FriendsList = ({ onChallengePlayer }) => {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
                           {request.sender.username[0].toUpperCase()}
                         </div>
-                        <div>
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base">{request.sender.username}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{request.sender.username}</div>
                           <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
                         </div>
                       </div>
-                      <div className="flex space-x-2">
+                      <div className="flex space-x-2 ml-2">
                         <motion.button
                           onClick={() => acceptFriendRequest(request.id)}
                           className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"

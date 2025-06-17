@@ -111,7 +111,7 @@ const MultiplayerChess = ({
         updateCapturedPieces(newHistory);
         setSelectedSquare(null);
         setPossibleMoves([]);
-        setActivePlayer(game.turn() === 'w' ? 'white' : 'black');
+        setActivePlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
         if (onPgnUpdate) {
           const pgn = gameCopy.pgn({ newline_char: '\n' });
           onPgnUpdate(pgn);
@@ -237,7 +237,7 @@ const MultiplayerChess = ({
     <div className="p-4 sm:p-6">
       <div className="grid lg:grid-cols-5 gap-6 sm:gap-8">
         {gameMode !== 'practice' && gameStarted && (
-          <div className="lg:col-span-1 space-y-6 min-w-[200px]">
+          <div className="lg:col-span-1 space-y-6 min-w-[250px]">
             <GameTimer
               initialTime={timeControl.black}
               isActive={activePlayer === 'black' && !isPaused}
@@ -255,14 +255,14 @@ const MultiplayerChess = ({
           </div>
         )}
 
-        <div className={gameMode === 'practice' ? 'lg:col-span-4' : 'lg:col-span-3'}>
+        <div className={gameMode === 'practice' ? 'lg:col-span-3' : 'lg:col-span-2'}>
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="aspect-square max-w-[500px] mx-auto">
+            <div className="aspect-square max-w-[600px] mx-auto">
               <Chessboard
                 position={gamePosition}
                 onPieceDrop={onPieceDrop}
@@ -280,7 +280,7 @@ const MultiplayerChess = ({
           </motion.div>
         </div>
 
-        <div className="lg:col-span-1 space-y-6 min-w-[200px]">
+        <div className="lg:col-span-2 space-y-6 min-w-[300px]">
           <motion.div 
             className="bg-white dark:bg-gray-800 rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
             initial={{ x: 50, opacity: 0 }}
@@ -377,7 +377,7 @@ const MultiplayerChess = ({
             <div className="space-y-4">
               <div>
                 <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">White Captured:</h4>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 min-h-[32px]">
                   <AnimatePresence>
                     {capturedPieces.white.map((piece, index) => (
                       <motion.span 
@@ -399,7 +399,7 @@ const MultiplayerChess = ({
               </div>
               <div>
                 <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Black Captured:</h4>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 min-h-[32px]">
                   <AnimatePresence>
                     {capturedPieces.black.map((piece, index) => (
                       <motion.span 
@@ -429,7 +429,7 @@ const MultiplayerChess = ({
             transition={{ duration: 0.5, delay: 0.5 }}
           >
             <h3 className="text-lg sm:text-xl font-bold mb-4 text-gray-900 dark:text-white">Move History</h3>
-            <div className="max-h-48 overflow-y-auto pr-2">
+            <div className="max-h-64 overflow-y-auto pr-2">
               {moveHistory.length > 0 ? (
                 <div className="space-y-1">
                   <AnimatePresence>

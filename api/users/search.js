@@ -28,26 +28,22 @@ export default async function handler(req, res) {
     }
 
     let decoded;
-try {
-  decoded = verifyToken(token);
-} catch (err) {
-  console.error('Token verification failed:', err.message);
-  return res.status(403).json({
-    success: false,
-    message: 'Invalid or expired token'
-  });
-}
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      console.error('Token verification failed:', err.message);
+      return res.status(403).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
 
-if (!decoded) {
-  return res.status(403).json({
-    success: false,
-    message: 'Token verification failed'
-  });
-}
-console.log('Token received:', token);
-console.log('Decoded user:', decoded);
-
-
+    if (!decoded) {
+      return res.status(403).json({
+        success: false,
+        message: 'Token verification failed'
+      });
+    }
 
     const { q } = req.query;
     if (!q || q.trim().length < 2) {
@@ -68,13 +64,13 @@ console.log('Decoded user:', decoded);
     const searchResults = await users
       .find({
         username: { $regex: q.trim(), $options: "i" },
-        _id: { $ne: new ObjectId(decoded.id) }, // Exclude self
+        _id: { $ne: new ObjectId(decoded.userId) }, // Fixed: use decoded.userId instead of decoded.id
       })
       .project({ password: 0 })
       .limit(10)
       .toArray();
 
-    const userId = new ObjectId(decoded.id);
+    const userId = new ObjectId(decoded.userId); // Fixed: use decoded.userId
 
     // Get IDs of users in search
     const userIds = searchResults.map((u) => u._id);
@@ -82,22 +78,31 @@ console.log('Decoded user:', decoded);
     // Fetch existing requests or friendships
     const existingFriendships = await friendships
       .find({
-        from: userId,
-        to: { $in: userIds },
+        $or: [
+          { userId: userId, friendId: { $in: userIds } },
+          { userId: { $in: userIds }, friendId: userId }
+        ]
       })
       .toArray();
 
-    const sentRequests = new Set(
-      existingFriendships
-        .filter((f) => f.status === "pending")
-        .map((f) => f.to.toString())
-    );
+    const sentRequests = new Set();
+    const friends = new Set();
+    
+    existingFriendships.forEach(friendship => {
+      const otherId = friendship.userId.toString() === decoded.userId ? friendship.friendId.toString() : friendship.userId.toString();
+      if (friendship.status === 'pending' && friendship.userId.toString() === decoded.userId) {
+        sentRequests.add(otherId);
+      } else if (friendship.status === 'accepted') {
+        friends.add(otherId);
+      }
+    });
 
     const usersWithData = searchResults.map((user) => ({
       id: user._id.toString(),
       username: user.username,
       chessRating: user.chessRating,
       friendRequestSent: sentRequests.has(user._id.toString()),
+      isFriend: friends.has(user._id.toString()),
     }));
 
     res.json({ success: true, users: usersWithData });
