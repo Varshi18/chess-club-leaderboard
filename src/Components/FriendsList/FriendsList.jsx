@@ -24,6 +24,7 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
   const [receivedChallenges, setReceivedChallenges] = useState([]);
+  const [sentChallenges, setSentChallenges] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('friends');
@@ -35,9 +36,14 @@ const FriendsList = ({ onChallengePlayer }) => {
     fetchFriends();
     fetchFriendRequests();
     fetchReceivedChallenges();
+    fetchSentChallenges();
     
-    // Poll for new challenges every 5 seconds
-    const interval = setInterval(fetchReceivedChallenges, 5000);
+    // Poll for new challenges and accepted challenges every 3 seconds
+    const interval = setInterval(() => {
+      fetchReceivedChallenges();
+      fetchSentChallenges();
+    }, 3000);
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -80,6 +86,36 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching challenges:', error.message);
+    }
+  };
+
+  const fetchSentChallenges = async () => {
+    try {
+      const response = await api.get('/?endpoint=challenges&action=sent');
+      if (response.data.success) {
+        const challenges = response.data.challenges;
+        setSentChallenges(challenges);
+        
+        // Check for accepted challenges and redirect
+        const acceptedChallenge = challenges.find(c => c.status === 'accepted' && c.gameId);
+        if (acceptedChallenge && onChallengePlayer) {
+          // Remove the accepted challenge from sent challenges
+          setSentChallenges(prev => prev.filter(c => c.id !== acceptedChallenge.id));
+          
+          // Redirect to game
+          onChallengePlayer({
+            id: acceptedChallenge.challenged.id,
+            username: acceptedChallenge.challenged.username,
+            chessRating: acceptedChallenge.challenged.chessRating,
+            timeControl: acceptedChallenge.timeControl,
+            gameId: acceptedChallenge.gameId
+          });
+          
+          alert('Your challenge was accepted! Starting game...');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching sent challenges:', error.message);
     }
   };
 
@@ -166,7 +202,11 @@ const FriendsList = ({ onChallengePlayer }) => {
         setShowChallengeModal(false);
         setSelectedFriend(null);
         setError(null);
-        alert('Challenge sent successfully! Both players will be redirected when accepted.');
+        
+        // Add to sent challenges list
+        fetchSentChallenges();
+        
+        alert('Challenge sent successfully! You will be notified when accepted.');
       } else {
         setError('Failed to send challenge: ' + response.data.message);
       }
@@ -208,6 +248,20 @@ const FriendsList = ({ onChallengePlayer }) => {
     } catch (error) {
       console.error('Error responding to challenge:', error.message);
       setError('Error responding to challenge. Please try again.');
+    }
+  };
+
+  const cancelChallenge = async (challengeId) => {
+    try {
+      const response = await api.delete(`/?endpoint=challenges&action=cancel&challengeId=${challengeId}`);
+      if (response.data.success) {
+        fetchSentChallenges();
+      } else {
+        setError('Failed to cancel challenge.');
+      }
+    } catch (error) {
+      console.error('Error canceling challenge:', error.message);
+      setError('Error canceling challenge. Please try again.');
     }
   };
 
@@ -299,6 +353,16 @@ const FriendsList = ({ onChallengePlayer }) => {
             }`}
           >
             Challenges ({receivedChallenges.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('sent')}
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+              activeTab === 'sent'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            Sent ({sentChallenges.length})
           </button>
         </div>
 
@@ -555,6 +619,61 @@ const FriendsList = ({ onChallengePlayer }) => {
                   <div className="text-center py-8">
                     <div className="text-4xl mb-4">⚔️</div>
                     <p className="text-gray-500 dark:text-gray-400">No pending challenges</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'sent' && (
+            <motion.div
+              key="sent"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Sent Challenges</h3>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {sentChallenges.length > 0 ? (
+                  sentChallenges.map((challenge) => (
+                    <motion.div
+                      key={challenge.id}
+                      className="flex items-center justify-between p-3 bg-blue-50/80 dark:bg-blue-900/20 backdrop-blur-sm rounded-lg border border-blue-200 dark:border-blue-800"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                          📤
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">
+                            Challenge to {challenge.challenged.username}
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                            {challenge.timeControl / 60} min • Status: {challenge.status}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2 ml-2">
+                        {challenge.status === 'pending' && (
+                          <motion.button
+                            onClick={() => cancelChallenge(challenge.id)}
+                            className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                          >
+                            Cancel
+                          </motion.button>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-4">📤</div>
+                    <p className="text-gray-500 dark:text-gray-400">No sent challenges</p>
                   </div>
                 )}
               </div>
