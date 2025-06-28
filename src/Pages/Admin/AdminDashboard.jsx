@@ -36,15 +36,67 @@ const AdminDashboard = () => {
       const token = localStorage.getItem('token');
       const headers = { Authorization: `Bearer ${token}` };
 
-      const [usersRes, gamesRes, analyticsRes] = await Promise.all([
-        axios.get('/api/admin?resource=users', { headers }),
-        axios.get('/api/admin?resource=games', { headers }),
-        axios.get('/api/admin?resource=analytics', { headers })
+      const [usersRes, gamesRes] = await Promise.all([
+        axios.get('/?endpoint=admin&resource=users', { headers }),
+        axios.get('/?endpoint=admin&resource=games', { headers })
       ]);
       
       if (usersRes.data.success) setUsers(usersRes.data.users);
       if (gamesRes.data.success) setGames(gamesRes.data.games);
-      if (analyticsRes.data.success) setAnalytics(analyticsRes.data.analytics);
+      
+      // Create analytics from the data we have
+      if (usersRes.data.success && gamesRes.data.success) {
+        const analyticsData = {
+          users: {
+            totalUsers: usersRes.data.users.length,
+            activeUsers: usersRes.data.users.filter(u => u.isActive).length,
+            avgRating: usersRes.data.users.reduce((sum, u) => sum + (u.chessRating || 1200), 0) / usersRes.data.users.length
+          },
+          games: {
+            totalGames: gamesRes.data.games.length,
+            recentGames: gamesRes.data.games.filter(g => {
+              const gameDate = new Date(g.createdAt);
+              const monthAgo = new Date();
+              monthAgo.setMonth(monthAgo.getMonth() - 1);
+              return gameDate > monthAgo;
+            }).length
+          },
+          tournaments: {
+            activeTournaments: 0,
+            totalTournaments: 0
+          },
+          topPlayers: usersRes.data.users
+            .sort((a, b) => (b.chessRating || 1200) - (a.chessRating || 1200))
+            .slice(0, 5)
+            .map(u => ({
+              username: u.username,
+              rating: u.chessRating || 1200,
+              gamesPlayed: u.gamesPlayed || 0,
+              winRate: u.gamesPlayed > 0 ? ((u.gamesWon || 0) / u.gamesPlayed * 100).toFixed(1) : 0
+            })),
+          activePlayers: usersRes.data.users
+            .sort((a, b) => (b.gamesPlayed || 0) - (a.gamesPlayed || 0))
+            .slice(0, 5)
+            .map(u => ({
+              username: u.username,
+              rating: u.chessRating || 1200,
+              gamesPlayed: u.gamesPlayed || 0,
+              winRate: u.gamesPlayed > 0 ? ((u.gamesWon || 0) / u.gamesPlayed * 100).toFixed(1) : 0
+            })),
+          timeControlStats: [
+            { _id: 'Blitz', count: gamesRes.data.games.filter(g => g.timeControl === 'Blitz').length },
+            { _id: 'Rapid', count: gamesRes.data.games.filter(g => g.timeControl === 'Rapid').length },
+            { _id: 'Classical', count: gamesRes.data.games.filter(g => g.timeControl === 'Classical').length }
+          ],
+          ratingDistribution: [
+            { _id: '1200', count: usersRes.data.users.filter(u => (u.chessRating || 1200) >= 1200 && (u.chessRating || 1200) < 1400).length },
+            { _id: '1400', count: usersRes.data.users.filter(u => (u.chessRating || 1200) >= 1400 && (u.chessRating || 1200) < 1600).length },
+            { _id: '1600', count: usersRes.data.users.filter(u => (u.chessRating || 1200) >= 1600 && (u.chessRating || 1200) < 1800).length },
+            { _id: '1800', count: usersRes.data.users.filter(u => (u.chessRating || 1200) >= 1800).length }
+          ]
+        };
+        setAnalytics(analyticsData);
+      }
     } catch (error) {
       console.error('Error fetching admin data:', error);
     } finally {
@@ -55,7 +107,7 @@ const AdminDashboard = () => {
   const updateUser = async (userId, updates) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.put('/api/admin?resource=users', 
+      const response = await axios.put('/?endpoint=admin&resource=users', 
         { userId, updates }, 
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -73,7 +125,7 @@ const AdminDashboard = () => {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.delete('/api/admin?resource=users', 
+      const response = await axios.delete('/?endpoint=admin&resource=users', 
         { 
           data: { userId },
           headers: { Authorization: `Bearer ${token}` }
@@ -90,7 +142,7 @@ const AdminDashboard = () => {
   const downloadPGN = async (gameId) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/games?resource=pgn&gameId=${gameId}&download=true`, {
+      const response = await axios.get(`/?endpoint=games&resource=pgn&gameId=${gameId}&download=true`, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
@@ -825,15 +877,19 @@ const GameDetailsModal = ({ game, onClose, onDownloadPGN }) => {
           </div>
 
           <div className="flex space-x-3">
-            <button
+            <motion.button
               onClick={onDownloadPGN}
-              className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
               Download PGN
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
+              className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 font-medium rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-all duration-300"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
               Close
             </button>

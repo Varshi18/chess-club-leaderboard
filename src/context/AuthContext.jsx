@@ -34,7 +34,7 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = async () => {
       if (token) {
         try {
-          const response = await axios.get('/auth/me');
+          const response = await axios.get('/?endpoint=auth&action=me');
           if (response.data.success) {
             // Ensure user object has all necessary fields including role
             const userData = {
@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/auth/login', { email, password });
+      const response = await axios.post('/?endpoint=auth&action=login', { email, password });
       
       if (response.data.success) {
         const { token: newToken, user: userData } = response.data;
@@ -86,7 +86,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await axios.post('/auth/register', userData);
+      const response = await axios.post('/?endpoint=auth&action=register', userData);
       
       if (response.data.success) {
         const { token: newToken, user: newUser } = response.data;

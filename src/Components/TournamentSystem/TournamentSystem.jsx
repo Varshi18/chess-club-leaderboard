@@ -15,7 +15,7 @@ const TournamentSystem = () => {
 
   const fetchTournaments = async () => {
     try {
-      const response = await axios.get('/api/tournaments');
+      const response = await axios.get('/?endpoint=tournaments');
       if (response.data.success) {
         setTournaments(response.data.tournaments);
       }
@@ -28,7 +28,7 @@ const TournamentSystem = () => {
 
   const joinTournament = async (tournamentId) => {
     try {
-      const response = await axios.post(`/api/tournaments/${tournamentId}/join`);
+      const response = await axios.post(`/?endpoint=tournaments&action=join&tournamentId=${tournamentId}`);
       if (response.data.success) {
         fetchTournaments();
       }

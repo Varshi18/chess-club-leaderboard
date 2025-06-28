@@ -28,7 +28,7 @@ const GamesPage = () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get('/api/admin?resource=games', {
+      const response = await axios.get('/?endpoint=admin&resource=games', {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -45,7 +45,7 @@ const GamesPage = () => {
   const fetchHeadToHead = async (player1Id, player2Id) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/games?resource=head-to-head&player1Id=${player1Id}&player2Id=${player2Id}`, {
+      const response = await axios.get(`/?endpoint=games&resource=head-to-head&player1Id=${player1Id}&player2Id=${player2Id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -60,7 +60,7 @@ const GamesPage = () => {
   const downloadPGN = async (gameId) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`/api/games?resource=pgn&gameId=${gameId}&download=true`, {
+      const response = await axios.get(`/?endpoint=games&resource=pgn&gameId=${gameId}&download=true`, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
