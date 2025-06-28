@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import GameTimer from '../GameTimer/GameTimer';
 import { useAuth } from '../../context/AuthContext';
+import axios from 'axios';
 
 const MultiplayerChess = ({
   gameMode = 'practice',
@@ -31,30 +32,33 @@ const MultiplayerChess = ({
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [isMyTurn, setIsMyTurn] = useState(true);
   const [gameStateVersion, setGameStateVersion] = useState(0);
-  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
+  const [gameSession, setGameSession] = useState(null);
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
-  const gameStateKeyRef = useRef(null);
   const isInitializedRef = useRef(false);
 
-  // Initialize game state key
-  useEffect(() => {
-    if (gameMode === 'multiplayer' && gameId) {
-      gameStateKeyRef.current = `chess_game_${gameId}`;
-      console.log('🎮 Game state key:', gameStateKeyRef.current);
+  // Set up API
+  const api = axios.create({
+    baseURL: '/api',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
-  }, [gameMode, gameId]);
+    return config;
+  });
 
   // Initialize multiplayer game
   useEffect(() => {
     if (gameMode === 'multiplayer' && gameId && opponent && user && !isInitializedRef.current) {
-      console.log('🎮 Initializing multiplayer game:', { 
+      console.log('🎮 Initializing server-side multiplayer game:', { 
         gameId, 
         opponent: opponent.username, 
-        user: user.username,
-        opponentId: opponent.id,
-        userId: user.id
+        user: user.username 
       });
       
       isInitializedRef.current = true;
@@ -69,148 +73,69 @@ const MultiplayerChess = ({
     };
   }, [gameMode, gameId, opponent, user]);
 
-  const initializeMultiplayerGame = () => {
+  const initializeMultiplayerGame = async () => {
     try {
-      // Determine player colors using string comparison for consistency
-      const isWhite = user.id < opponent.id;
-      const assignedColor = isWhite ? 'white' : 'black';
+      // Fetch game session from server
+      const response = await api.get(`/?endpoint=game-sessions&gameId=${gameId}`);
       
-      console.log('🎯 Player color assignment:', {
-        userId: user.id,
-        opponentId: opponent.id,
-        assignedColor,
-        isWhite,
-        comparison: user.id < opponent.id
-      });
-      
-      setPlayerColor(assignedColor);
-      setTimeControl({ 
-        white: initialTimeControl, 
-        black: initialTimeControl 
-      });
-      
-      // Check for existing game state
-      const gameStateKey = gameStateKeyRef.current;
-      const existingState = localStorage.getItem(gameStateKey);
-      
-      if (existingState) {
-        console.log('📂 Loading existing game state');
-        try {
-          const parsedState = JSON.parse(existingState);
-          if (parsedState.moves && Array.isArray(parsedState.moves)) {
-            loadGameFromState(parsedState);
-          } else {
-            console.log('🔄 Invalid state format, creating new game');
-            createNewGameState(assignedColor);
-          }
-        } catch (error) {
-          console.error('❌ Error parsing existing state:', error);
-          createNewGameState(assignedColor);
+      if (response.data.success) {
+        const session = response.data.gameSession;
+        setGameSession(session);
+        
+        console.log('🎯 Game session loaded:', session);
+        
+        // Determine player color
+        const isWhite = session.whitePlayerId === user.id;
+        const assignedColor = isWhite ? 'white' : 'black';
+        setPlayerColor(assignedColor);
+        
+        console.log('🎨 Player color assignment:', {
+          userId: user.id,
+          whitePlayerId: session.whitePlayerId,
+          blackPlayerId: session.blackPlayerId,
+          assignedColor,
+          isWhite
+        });
+        
+        // Set time control
+        setTimeControl({ 
+          white: session.timeControl, 
+          black: session.timeControl 
+        });
+        
+        // Load existing game state
+        if (session.moves && session.moves.length > 0) {
+          loadGameFromServerState(session);
+        } else {
+          // New game
+          setGameStateVersion(session.version || 1);
+          setActivePlayer('white');
+          setIsMyTurn(assignedColor === 'white');
         }
+        
+        setGameStarted(true);
+        setSyncStatus('connected');
+        
+        // Start real-time sync with server
+        startServerSync();
+        
       } else {
-        console.log('🆕 Creating new game state');
-        createNewGameState(assignedColor);
+        console.error('❌ Failed to load game session:', response.data.message);
+        setSyncStatus('error');
       }
-      
-      setGameStarted(true);
-      setSyncStatus('connected');
-      
-      // Start real-time sync with faster polling
-      startRealTimeSync();
-      
     } catch (error) {
       console.error('❌ Error initializing multiplayer game:', error);
-      setPlayerColor('white');
-      setGameStarted(true);
-    }
-  };
-
-  const createNewGameState = (assignedColor) => {
-    const isWhite = user.id < opponent.id;
-    
-    const initialState = {
-      version: 1,
-      moves: [],
-      fen: new Chess().fen(),
-      turn: 'w',
-      lastUpdate: Date.now(),
-      gameId,
-      players: {
-        white: isWhite ? user.id : opponent.id,
-        black: isWhite ? opponent.id : user.id
-      },
-      whiteUsername: isWhite ? user.username : opponent.username,
-      blackUsername: isWhite ? opponent.username : user.username,
-      createdBy: user.id,
-      lastMoveBy: null,
-      gameStarted: true
-    };
-    
-    localStorage.setItem(gameStateKeyRef.current, JSON.stringify(initialState));
-    setLastSyncTime(initialState.lastUpdate);
-    setGameStateVersion(1);
-    
-    console.log('💾 Created initial game state:', initialState);
-  };
-
-  const startRealTimeSync = () => {
-    if (syncIntervalRef.current) {
-      clearInterval(syncIntervalRef.current);
-    }
-    
-    // Faster sync for better real-time experience
-    syncIntervalRef.current = setInterval(() => {
-      syncGameState();
-    }, 300); // Sync every 300ms
-    
-    console.log('🔄 Started real-time sync (300ms interval)');
-  };
-
-  const syncGameState = () => {
-    if (!gameStateKeyRef.current || gameMode !== 'multiplayer') return;
-    
-    try {
-      const currentState = localStorage.getItem(gameStateKeyRef.current);
-      
-      if (currentState) {
-        const parsedState = JSON.parse(currentState);
-        
-        // Check if there are new moves since our last sync
-        if (parsedState.lastUpdate > lastSyncTime && 
-            parsedState.lastMoveBy !== user.id && 
-            parsedState.version > gameStateVersion) {
-          
-          console.log('🔄 New moves detected, syncing...', {
-            serverMoves: parsedState.moves.length,
-            localMoves: moveHistory.length,
-            lastUpdate: new Date(parsedState.lastUpdate).toLocaleTimeString(),
-            lastMoveBy: parsedState.lastMoveBy,
-            currentUser: user.id,
-            serverVersion: parsedState.version,
-            localVersion: gameStateVersion
-          });
-          
-          loadGameFromState(parsedState);
-          setLastSyncTime(parsedState.lastUpdate);
-          setSyncStatus('synced');
-          
-          // Flash sync indicator
-          setTimeout(() => setSyncStatus('connected'), 1000);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error syncing game state:', error);
       setSyncStatus('error');
     }
   };
 
-  const loadGameFromState = (state) => {
+  const loadGameFromServerState = (session) => {
     try {
       const newGame = new Chess();
       
-      // Apply all moves from the state
-      if (state.moves && state.moves.length > 0) {
-        state.moves.forEach((move, index) => {
+      // Apply all moves from the server
+      if (session.moves && session.moves.length > 0) {
+        session.moves.forEach((move, index) => {
           try {
             const result = newGame.move(move);
             if (!result) {
@@ -226,7 +151,7 @@ const MultiplayerChess = ({
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
       setActivePlayer(newGame.turn() === 'w' ? 'white' : 'black');
-      setGameStateVersion(state.version || 0);
+      setGameStateVersion(session.version || 0);
       
       // Update turn indicator
       const currentTurn = newGame.turn();
@@ -237,57 +162,96 @@ const MultiplayerChess = ({
       updateCapturedPieces(newGame.history({ verbose: true }));
       
       // Update PGN
-      const pgn = generatePGN(newGame, state);
+      const pgn = generatePGN(newGame, session);
       if (onPgnUpdate) {
         onPgnUpdate(pgn);
       }
       
       updateGameStatus(newGame);
       
-      console.log('✅ Game state loaded successfully:', {
-        moves: state.moves.length,
+      console.log('✅ Game state loaded from server:', {
+        moves: session.moves.length,
         turn: currentTurn,
         isMyTurn: isPlayerTurn,
-        version: state.version
+        version: session.version
       });
       
     } catch (error) {
-      console.error('❌ Error loading game from state:', error);
+      console.error('❌ Error loading game from server state:', error);
     }
   };
 
-  const saveGameState = (newMove, newGame) => {
-    if (gameMode !== 'multiplayer' || !gameStateKeyRef.current) return;
+  const startServerSync = () => {
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+    }
+    
+    // Sync with server every 1 second for real-time updates
+    syncIntervalRef.current = setInterval(() => {
+      syncWithServer();
+    }, 1000);
+    
+    console.log('🔄 Started server sync (1s interval)');
+  };
+
+  const syncWithServer = async () => {
+    if (!gameId || gameMode !== 'multiplayer') return;
     
     try {
-      const currentState = JSON.parse(localStorage.getItem(gameStateKeyRef.current) || '{}');
+      const response = await api.get(`/?endpoint=game-sessions&action=sync&gameId=${gameId}&lastVersion=${gameStateVersion}`);
       
-      const updatedState = {
-        ...currentState,
-        version: (currentState.version || 0) + 1,
-        moves: [...(currentState.moves || []), newMove.san],
-        fen: newGame.fen(),
-        turn: newGame.turn(),
-        lastUpdate: Date.now(),
-        gameId,
-        lastMoveBy: user.id,
-        gameStarted: true
-      };
-      
-      localStorage.setItem(gameStateKeyRef.current, JSON.stringify(updatedState));
-      setLastSyncTime(updatedState.lastUpdate);
-      setGameStateVersion(updatedState.version);
-      
-      console.log('💾 Game state saved:', {
-        move: newMove.san,
-        totalMoves: updatedState.moves.length,
-        turn: updatedState.turn,
-        by: user.username,
-        version: updatedState.version
-      });
-      
+      if (response.data.success && response.data.hasUpdates) {
+        const serverState = response.data.gameState;
+        
+        console.log('🔄 Server updates detected:', {
+          serverMoves: serverState.moves.length,
+          localMoves: moveHistory.length,
+          serverVersion: serverState.version,
+          localVersion: gameStateVersion,
+          lastMoveBy: serverState.lastMoveBy,
+          currentUser: user.id
+        });
+        
+        // Only update if the move wasn't made by current user
+        if (serverState.lastMoveBy !== user.id) {
+          loadGameFromServerState(serverState);
+          setSyncStatus('synced');
+          
+          // Flash sync indicator
+          setTimeout(() => setSyncStatus('connected'), 1000);
+        }
+        
+        // Update version regardless
+        setGameStateVersion(serverState.version);
+        
+        // Check for game end
+        if (serverState.status === 'completed' && serverState.result) {
+          handleGameEnd(serverState.result, serverState.reason);
+        }
+      }
     } catch (error) {
-      console.error('❌ Error saving game state:', error);
+      console.error('❌ Error syncing with server:', error);
+      setSyncStatus('error');
+    }
+  };
+
+  const handleGameEnd = (result, reason) => {
+    let gameResult;
+    if (result === '1-0') {
+      gameResult = { winner: 'White', reason };
+    } else if (result === '0-1') {
+      gameResult = { winner: 'Black', reason };
+    } else {
+      gameResult = { winner: null, reason };
+    }
+    
+    setGameResult(gameResult);
+    setShowGameOver(true);
+    
+    // Stop syncing when game ends
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
     }
   };
 
@@ -317,13 +281,8 @@ const MultiplayerChess = ({
       }
       setGameStatus(status);
       if (gameMode === 'multiplayer') {
-        setGameResult(result);
-        setShowGameOver(true);
-        // Stop syncing when game ends
-        if (syncIntervalRef.current) {
-          clearInterval(syncIntervalRef.current);
-          syncIntervalRef.current = null;
-        }
+        // Send game end to server
+        endGameOnServer(result);
       }
     } else if (gameInstance.isCheck()) {
       setGameStatus(`${gameInstance.turn() === 'w' ? 'White' : 'Black'} is in check`);
@@ -331,6 +290,23 @@ const MultiplayerChess = ({
       setGameStatus(`${gameInstance.turn() === 'w' ? 'White' : 'Black'} to move`);
     }
   }, [gameMode]);
+
+  const endGameOnServer = async (result) => {
+    try {
+      const gameResult = result.winner === 'White' ? '1-0' : 
+                        result.winner === 'Black' ? '0-1' : '1/2-1/2';
+      
+      await api.patch('/?endpoint=game-sessions&action=end', {
+        gameId,
+        result: gameResult,
+        reason: result.reason
+      });
+      
+      console.log('🏁 Game ended on server:', gameResult);
+    } catch (error) {
+      console.error('❌ Error ending game on server:', error);
+    }
+  };
 
   const updateCapturedPieces = useCallback((history) => {
     if (!trackCapturedPieces) return;
@@ -347,19 +323,24 @@ const MultiplayerChess = ({
     setCapturedPieces(captured);
   }, [trackCapturedPieces]);
 
-  const generatePGN = useCallback((gameInstance, state = null) => {
+  const generatePGN = useCallback((gameInstance, session = null) => {
     const history = gameInstance.history();
     let pgn = '';
     
     // Add headers for multiplayer games
-    if (gameMode === 'multiplayer' && opponent) {
+    if (gameMode === 'multiplayer' && (opponent || session)) {
       const now = new Date();
+      const whiteUsername = session?.whitePlayer?.username || 
+                           (playerColor === 'white' ? user.username : opponent?.username);
+      const blackUsername = session?.blackPlayer?.username || 
+                           (playerColor === 'black' ? user.username : opponent?.username);
+      
       pgn += `[Event "Chess Club Game"]\n`;
       pgn += `[Site "IIT Dharwad Chess Club"]\n`;
       pgn += `[Date "${now.toISOString().split('T')[0]}"]\n`;
       pgn += `[Round "?"]\n`;
-      pgn += `[White "${state?.whiteUsername || (playerColor === 'white' ? user.username : opponent.username)}"]\n`;
-      pgn += `[Black "${state?.blackUsername || (playerColor === 'black' ? user.username : opponent.username)}"]\n`;
+      pgn += `[White "${whiteUsername}"]\n`;
+      pgn += `[Black "${blackUsername}"]\n`;
       pgn += `[Result "*"]\n`;
       pgn += `[TimeControl "${timeControl.white}"]\n\n`;
     }
@@ -386,7 +367,7 @@ const MultiplayerChess = ({
     return pgn.trim();
   }, [gameMode, opponent, playerColor, user, timeControl]);
 
-  const makeMove = useCallback((sourceSquare, targetSquare, piece) => {
+  const makeMove = useCallback(async (sourceSquare, targetSquare, piece) => {
     // Check if move is allowed
     if (gameMode === 'multiplayer') {
       if (!gameStarted) {
@@ -416,6 +397,7 @@ const MultiplayerChess = ({
       if (move) {
         console.log('✅ Move made:', move.san, 'by', user.username);
         
+        // Update local state immediately for responsiveness
         setGame(gameCopy);
         setGamePosition(gameCopy.fen());
         
@@ -440,10 +422,33 @@ const MultiplayerChess = ({
           onPgnUpdate(pgn);
         }
 
-        // Save game state for real-time sync in multiplayer
-        if (gameMode === 'multiplayer') {
-          saveGameState(move, gameCopy);
-          setSyncStatus('synced');
+        // Send move to server for multiplayer games
+        if (gameMode === 'multiplayer' && gameId) {
+          try {
+            setSyncStatus('syncing');
+            
+            const response = await api.patch('/?endpoint=game-sessions&action=move', {
+              gameId,
+              move: move.san,
+              fen: gameCopy.fen(),
+              pgn
+            });
+            
+            if (response.data.success) {
+              setGameStateVersion(response.data.version);
+              setSyncStatus('synced');
+              console.log('📡 Move sent to server successfully:', {
+                move: move.san,
+                version: response.data.version
+              });
+            } else {
+              console.error('❌ Failed to send move to server:', response.data.message);
+              setSyncStatus('error');
+            }
+          } catch (error) {
+            console.error('❌ Error sending move to server:', error);
+            setSyncStatus('error');
+          }
         }
 
         return true;
@@ -453,7 +458,7 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user]);
+  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
@@ -514,11 +519,6 @@ const MultiplayerChess = ({
     setGameStateVersion(0);
     isInitializedRef.current = false;
     
-    // Clear localStorage for multiplayer games
-    if (gameMode === 'multiplayer' && gameStateKeyRef.current) {
-      localStorage.removeItem(gameStateKeyRef.current);
-    }
-    
     // Stop sync
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
@@ -537,7 +537,11 @@ const MultiplayerChess = ({
     setGameResult(result);
     setShowGameOver(true);
     setIsPaused(true);
-  }, []);
+    
+    if (gameMode === 'multiplayer') {
+      endGameOnServer(result);
+    }
+  }, [gameMode]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -576,6 +580,7 @@ const MultiplayerChess = ({
     switch (syncStatus) {
       case 'connected': return 'text-blue-500';
       case 'synced': return 'text-green-500';
+      case 'syncing': return 'text-yellow-500';
       case 'error': return 'text-red-500';
       default: return 'text-gray-500';
     }
@@ -585,6 +590,7 @@ const MultiplayerChess = ({
     switch (syncStatus) {
       case 'connected': return 'Connected';
       case 'synced': return 'Synced ✓';
+      case 'syncing': return 'Syncing...';
       case 'error': return 'Sync Error';
       default: return 'Disconnected';
     }
@@ -675,11 +681,19 @@ const MultiplayerChess = ({
                 {gameStatus}
               </motion.div>
               
-              {gameMode === 'multiplayer' && opponent && (
+              {gameMode === 'multiplayer' && gameSession && (
                 <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                   <div className="text-xs lg:text-sm text-gray-600 dark:text-gray-400">Playing against:</div>
-                  <div className="font-semibold text-gray-900 dark:text-white text-sm lg:text-base">{opponent.username}</div>
-                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Rating: {opponent.chessRating}</div>
+                  <div className="font-semibold text-gray-900 dark:text-white text-sm lg:text-base">
+                    {gameSession.whitePlayer?.username === user.username ? 
+                      gameSession.blackPlayer?.username : 
+                      gameSession.whitePlayer?.username}
+                  </div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">
+                    Rating: {gameSession.whitePlayer?.username === user.username ? 
+                      gameSession.blackPlayer?.chessRating : 
+                      gameSession.whitePlayer?.chessRating}
+                  </div>
                   <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">You are: {playerColor}</div>
                   <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Time: {timeControl.white / 60} min</div>
                   <div className={`text-xs lg:text-sm mt-1 font-medium ${isMyTurn ? 'text-green-600' : 'text-orange-600'}`}>
