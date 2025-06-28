@@ -250,6 +250,10 @@ export default async function handler(req, res) {
       if (req.method === 'PATCH' && action === 'move') {
         const { gameId, move, fen } = req.body;
         
+        if (!gameId || !move) {
+          return res.status(400).json({ success: false, message: 'Game ID and move are required' });
+        }
+        
         const gameSession = await db.collection('game_sessions').findOne({ gameId });
         if (!gameSession) {
           return res.status(404).json({ success: false, message: 'Game session not found' });

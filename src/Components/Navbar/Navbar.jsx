@@ -78,13 +78,13 @@ const Navbar = () => {
         </div>
         
         {/* Desktop Menu */}
-        <div className="hidden lg:flex items-center space-x-6">
-          <ul className="flex space-x-6">
+        <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
+          <ul className="flex space-x-4 xl:space-x-6">
             {navigationItems.map(({ path, label }) => (
               <li key={path}>
                 <Link
                   to={path}
-                  className={`relative px-4 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 ${
+                  className={`relative px-3 xl:px-4 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 text-sm xl:text-base ${
                     isActive(path)
                       ? 'text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30'
                       : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
@@ -100,9 +100,9 @@ const Navbar = () => {
           </ul>
           
           {/* Desktop User Menu */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3 xl:space-x-4">
             {isAuthenticated ? (
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-3 xl:space-x-4">
                 <div className="text-sm text-gray-700 dark:text-gray-300 hidden xl:block">
                   Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
                   {user?.role === 'admin' && (
@@ -113,22 +113,22 @@ const Navbar = () => {
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105"
+                  className="px-3 xl:px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 text-sm xl:text-base"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-2 xl:space-x-3">
                 <Link
                   to="/login"
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300"
+                  className="px-3 xl:px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300 text-sm xl:text-base"
                 >
                   Login
                 </Link>
                 <Link
                   to="/register"
-                  className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105"
+                  className="px-3 xl:px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 text-sm xl:text-base"
                 >
                   Sign Up
                 </Link>
