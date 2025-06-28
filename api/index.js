@@ -37,6 +37,15 @@ const generateGameId = () => {
   return `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 };
 
+// Helper function to safely convert to ObjectId
+const toObjectId = (id) => {
+  try {
+    return new ObjectId(id);
+  } catch (error) {
+    return null;
+  }
+};
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -172,7 +181,7 @@ export default async function handler(req, res) {
           return res.status(401).json({ success: false, message: 'Invalid token' });
         }
 
-        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
         if (!user) {
           return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -207,8 +216,8 @@ export default async function handler(req, res) {
           }
 
           // Populate player data
-          const whitePlayer = await db.collection('users').findOne({ _id: new ObjectId(gameSession.whitePlayerId) });
-          const blackPlayer = await db.collection('users').findOne({ _id: new ObjectId(gameSession.blackPlayerId) });
+          const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.whitePlayerId) });
+          const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.blackPlayerId) });
 
           if (!whitePlayer || !blackPlayer) {
             return res.status(404).json({ success: false, message: 'Player data not found' });
@@ -302,7 +311,7 @@ export default async function handler(req, res) {
           const playerCanMove = (currentTurn === 'w' && isWhitePlayer) || (currentTurn === 'b' && isBlackPlayer);
           
           if (!playerCanMove) {
-            return res.status(400).json({ success: false, message: 'Not your turn' });
+            return res.status(400).json({ success: false, message: `Not your turn. Current turn: ${currentTurn === 'w' ? 'White' : 'Black'}` });
           }
 
           // Update game state
@@ -387,7 +396,7 @@ export default async function handler(req, res) {
         }
 
         // Check if challenged user exists
-        const challengedUser = await db.collection('users').findOne({ _id: new ObjectId(challengedUserId) });
+        const challengedUser = await db.collection('users').findOne({ _id: toObjectId(challengedUserId) });
         if (!challengedUser) {
           return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -419,33 +428,33 @@ export default async function handler(req, res) {
 
       if (req.method === 'GET' && action === 'received') {
         try {
-          const challenges = await db.collection('challenges').aggregate([
-            { $match: { challengedUserId: decoded.userId, status: 'pending' } },
-            {
-              $lookup: {
-                from: 'users',
-                let: { challengerId: '$challengerId' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$challengerId' }] } } }
-                ],
-                as: 'challenger'
-              }
-            },
-            { $unwind: '$challenger' },
-            {
-              $project: {
-                id: '$id',
-                timeControl: 1,
-                status: 1,
-                createdAt: 1,
-                'challenger.id': '$challenger._id',
-                'challenger.username': '$challenger.username',
-                'challenger.chessRating': '$challenger.chessRating'
-              }
-            }
-          ]).toArray();
+          const challenges = await db.collection('challenges').find({
+            challengedUserId: decoded.userId,
+            status: 'pending'
+          }).toArray();
 
-          return res.status(200).json({ success: true, challenges });
+          // Populate challenger data
+          const challengesWithUsers = await Promise.all(challenges.map(async (challenge) => {
+            const challenger = await db.collection('users').findOne({ _id: toObjectId(challenge.challengerId) });
+            if (!challenger) return null;
+
+            return {
+              id: challenge.id,
+              timeControl: challenge.timeControl,
+              status: challenge.status,
+              createdAt: challenge.createdAt,
+              challenger: {
+                id: challenger._id,
+                username: challenger.username,
+                chessRating: challenger.chessRating || 1200
+              }
+            };
+          }));
+
+          // Filter out null results
+          const validChallenges = challengesWithUsers.filter(c => c !== null);
+
+          return res.status(200).json({ success: true, challenges: validChallenges });
         } catch (error) {
           console.error('Error fetching received challenges:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
@@ -454,34 +463,33 @@ export default async function handler(req, res) {
 
       if (req.method === 'GET' && action === 'sent') {
         try {
-          const challenges = await db.collection('challenges').aggregate([
-            { $match: { challengerId: decoded.userId } },
-            {
-              $lookup: {
-                from: 'users',
-                let: { challengedUserId: '$challengedUserId' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$challengedUserId' }] } } }
-                ],
-                as: 'challenged'
-              }
-            },
-            { $unwind: '$challenged' },
-            {
-              $project: {
-                id: '$id',
-                timeControl: 1,
-                status: 1,
-                gameId: 1,
-                createdAt: 1,
-                'challenged.id': '$challenged._id',
-                'challenged.username': '$challenged.username',
-                'challenged.chessRating': '$challenged.chessRating'
-              }
-            }
-          ]).toArray();
+          const challenges = await db.collection('challenges').find({
+            challengerId: decoded.userId
+          }).toArray();
 
-          return res.status(200).json({ success: true, challenges });
+          // Populate challenged user data
+          const challengesWithUsers = await Promise.all(challenges.map(async (challenge) => {
+            const challenged = await db.collection('users').findOne({ _id: toObjectId(challenge.challengedUserId) });
+            if (!challenged) return null;
+
+            return {
+              id: challenge.id,
+              timeControl: challenge.timeControl,
+              status: challenge.status,
+              gameId: challenge.gameId,
+              createdAt: challenge.createdAt,
+              challenged: {
+                id: challenged._id,
+                username: challenged.username,
+                chessRating: challenged.chessRating || 1200
+              }
+            };
+          }));
+
+          // Filter out null results
+          const validChallenges = challengesWithUsers.filter(c => c !== null);
+
+          return res.status(200).json({ success: true, challenges: validChallenges });
         } catch (error) {
           console.error('Error fetching sent challenges:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
@@ -592,7 +600,7 @@ export default async function handler(req, res) {
               { username: { $regex: searchQuery, $options: 'i' } },
               { fullName: { $regex: searchQuery, $options: 'i' } }
             ],
-            _id: { $ne: new ObjectId(decoded.userId) }
+            _id: { $ne: toObjectId(decoded.userId) }
           }).limit(20).toArray();
 
           // Check friendship status for each user
@@ -633,30 +641,30 @@ export default async function handler(req, res) {
       if (req.method === 'GET' && req.query.type === 'requests') {
         // Get friend requests
         try {
-          const requests = await db.collection('friend_requests').aggregate([
-            { $match: { receiverId: decoded.userId, status: 'pending' } },
-            {
-              $lookup: {
-                from: 'users',
-                let: { senderId: '$senderId' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$senderId' }] } } }
-                ],
-                as: 'sender'
-              }
-            },
-            { $unwind: '$sender' },
-            {
-              $project: {
-                id: '$_id',
-                'sender.id': '$sender._id',
-                'sender.username': '$sender.username',
-                'sender.chessRating': '$sender.chessRating'
-              }
-            }
-          ]).toArray();
+          const requests = await db.collection('friend_requests').find({
+            receiverId: decoded.userId,
+            status: 'pending'
+          }).toArray();
 
-          return res.status(200).json({ success: true, requests });
+          // Populate sender data
+          const requestsWithUsers = await Promise.all(requests.map(async (request) => {
+            const sender = await db.collection('users').findOne({ _id: toObjectId(request.senderId) });
+            if (!sender) return null;
+
+            return {
+              id: request._id,
+              sender: {
+                id: sender._id,
+                username: sender.username,
+                chessRating: sender.chessRating || 1200
+              }
+            };
+          }));
+
+          // Filter out null results
+          const validRequests = requestsWithUsers.filter(r => r !== null);
+
+          return res.status(200).json({ success: true, requests: validRequests });
         } catch (error) {
           console.error('Error fetching friend requests:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch friend requests' });
@@ -666,50 +674,31 @@ export default async function handler(req, res) {
       if (req.method === 'GET') {
         // Get friends list
         try {
-          const friendships = await db.collection('friendships').aggregate([
-            { 
-              $match: { 
-                $or: [
-                  { user1Id: decoded.userId },
-                  { user2Id: decoded.userId }
-                ]
-              }
-            },
-            {
-              $lookup: {
-                from: 'users',
-                let: { user1Id: '$user1Id' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$user1Id' }] } } }
-                ],
-                as: 'user1'
-              }
-            },
-            {
-              $lookup: {
-                from: 'users',
-                let: { user2Id: '$user2Id' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$user2Id' }] } } }
-                ],
-                as: 'user2'
-              }
-            },
-            { $unwind: '$user1' },
-            { $unwind: '$user2' }
-          ]).toArray();
+          const friendships = await db.collection('friendships').find({
+            $or: [
+              { user1Id: decoded.userId },
+              { user2Id: decoded.userId }
+            ]
+          }).toArray();
 
-          const friends = friendships.map(friendship => {
-            const friend = friendship.user1Id === decoded.userId ? friendship.user2 : friendship.user1;
+          // Populate friend data
+          const friendsWithUsers = await Promise.all(friendships.map(async (friendship) => {
+            const friendId = friendship.user1Id === decoded.userId ? friendship.user2Id : friendship.user1Id;
+            const friend = await db.collection('users').findOne({ _id: toObjectId(friendId) });
+            if (!friend) return null;
+
             return {
               id: friend._id.toString(),
               username: friend.username,
               chessRating: friend.chessRating || 1200,
               lastSeen: friend.lastSeen
             };
-          });
+          }));
 
-          return res.status(200).json({ success: true, friends });
+          // Filter out null results
+          const validFriends = friendsWithUsers.filter(f => f !== null);
+
+          return res.status(200).json({ success: true, friends: validFriends });
         } catch (error) {
           console.error('Error fetching friends:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch friends' });
@@ -769,7 +758,7 @@ export default async function handler(req, res) {
 
         try {
           const request = await db.collection('friend_requests').findOne({
-            _id: new ObjectId(requestId),
+            _id: toObjectId(requestId),
             receiverId: decoded.userId,
             status: 'pending'
           });
@@ -788,7 +777,7 @@ export default async function handler(req, res) {
 
             // Update request status
             await db.collection('friend_requests').updateOne(
-              { _id: new ObjectId(requestId) },
+              { _id: toObjectId(requestId) },
               { $set: { status: 'accepted', respondedAt: new Date() } }
             );
 
@@ -796,7 +785,7 @@ export default async function handler(req, res) {
           } else {
             // Reject request
             await db.collection('friend_requests').updateOne(
-              { _id: new ObjectId(requestId) },
+              { _id: toObjectId(requestId) },
               { $set: { status: 'rejected', respondedAt: new Date() } }
             );
 
@@ -819,41 +808,28 @@ export default async function handler(req, res) {
       if (req.method === 'GET') {
         // Get all tournaments
         try {
-          const tournaments = await db.collection('tournaments').aggregate([
-            {
-              $lookup: {
-                from: 'users',
-                let: { participantIds: '$participants' },
-                pipeline: [
-                  { $match: { $expr: { $in: [{ $toString: '$_id' }, '$$participantIds'] } } }
-                ],
-                as: 'participantUsers'
-              }
-            },
-            {
-              $addFields: {
-                participants: {
-                  $map: {
-                    input: '$participantUsers',
-                    as: 'user',
-                    in: {
-                      userId: { $toString: '$$user._id' },
-                      username: '$$user.username',
-                      rating: '$$user.chessRating'
-                    }
-                  }
-                }
-              }
-            },
-            {
-              $project: {
-                participantUsers: 0
-              }
-            },
-            { $sort: { startTime: 1 } }
-          ]).toArray();
+          const tournaments = await db.collection('tournaments').find({}).toArray();
 
-          return res.status(200).json({ success: true, tournaments });
+          // Populate participant data
+          const tournamentsWithParticipants = await Promise.all(tournaments.map(async (tournament) => {
+            const participants = await Promise.all((tournament.participants || []).map(async (participantId) => {
+              const user = await db.collection('users').findOne({ _id: toObjectId(participantId) });
+              if (!user) return null;
+
+              return {
+                userId: user._id.toString(),
+                username: user.username,
+                rating: user.chessRating || 1200
+              };
+            }));
+
+            return {
+              ...tournament,
+              participants: participants.filter(p => p !== null)
+            };
+          }));
+
+          return res.status(200).json({ success: true, tournaments: tournamentsWithParticipants });
         } catch (error) {
           console.error('Error fetching tournaments:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch tournaments' });
@@ -862,7 +838,7 @@ export default async function handler(req, res) {
 
       if (req.method === 'POST') {
         // Create tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
         if (!user || user.role !== 'admin') {
           return res.status(403).json({ success: false, message: 'Admin access required' });
         }
@@ -945,7 +921,7 @@ export default async function handler(req, res) {
 
       if (req.method === 'PUT') {
         // Update tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
         if (!user || user.role !== 'admin') {
           return res.status(403).json({ success: false, message: 'Admin access required' });
         }
@@ -974,7 +950,7 @@ export default async function handler(req, res) {
 
       if (req.method === 'DELETE') {
         // Delete tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
         if (!user || user.role !== 'admin') {
           return res.status(403).json({ success: false, message: 'Admin access required' });
         }
@@ -999,7 +975,7 @@ export default async function handler(req, res) {
         return res.status(401).json({ success: false, message: 'Authentication required' });
       }
 
-      const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+      const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
       if (!user || user.role !== 'admin') {
         return res.status(403).json({ success: false, message: 'Admin access required' });
       }
@@ -1037,7 +1013,7 @@ export default async function handler(req, res) {
           delete updates._id;
           
           await db.collection('users').updateOne(
-            { _id: new ObjectId(userId) },
+            { _id: toObjectId(userId) },
             { $set: { ...updates, updatedAt: new Date() } }
           );
 
@@ -1056,7 +1032,7 @@ export default async function handler(req, res) {
         }
 
         try {
-          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+          await db.collection('users').deleteOne({ _id: toObjectId(userId) });
 
           return res.status(200).json({ success: true, message: 'User deleted successfully' });
         } catch (error) {
@@ -1067,57 +1043,43 @@ export default async function handler(req, res) {
 
       if (resource === 'games' && req.method === 'GET') {
         try {
-          const games = await db.collection('game_sessions').aggregate([
-            { $match: { status: 'completed' } },
-            {
-              $lookup: {
-                from: 'users',
-                let: { whitePlayerId: '$whitePlayerId' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$whitePlayerId' }] } } }
-                ],
-                as: 'whitePlayer'
-              }
-            },
-            {
-              $lookup: {
-                from: 'users',
-                let: { blackPlayerId: '$blackPlayerId' },
-                pipeline: [
-                  { $match: { $expr: { $eq: ['$_id', { $toObjectId: '$$blackPlayerId' }] } } }
-                ],
-                as: 'blackPlayer'
-              }
-            },
-            { $unwind: '$whitePlayer' },
-            { $unwind: '$blackPlayer' },
-            {
-              $project: {
-                id: '$_id',
-                result: 1,
-                timeControl: { $concat: [{ $toString: { $divide: ['$timeControl', 60] } }, ' min'] },
-                duration: { $subtract: ['$endedAt', '$createdAt'] },
-                moves: { $size: { $ifNull: ['$moves', []] } },
-                gameType: { $ifNull: ['$gameType', 'casual'] },
-                createdAt: 1,
-                endedAt: 1,
-                'whitePlayer.id': '$whitePlayer._id',
-                'whitePlayer.username': '$whitePlayer.username',
-                'whitePlayer.rating': '$whitePlayer.chessRating',
-                'blackPlayer.id': '$blackPlayer._id',
-                'blackPlayer.username': '$blackPlayer.username',
-                'blackPlayer.rating': '$blackPlayer.chessRating'
-              }
-            },
-            { $sort: { createdAt: -1 } }
-          ]).toArray();
+          const games = await db.collection('game_sessions').find({
+            status: 'completed'
+          }).toArray();
 
-          const gameList = games.map(game => ({
-            ...game,
-            duration: Math.floor((game.duration || 0) / 1000) // Convert to seconds
+          // Populate player data
+          const gamesWithPlayers = await Promise.all(games.map(async (game) => {
+            const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(game.whitePlayerId) });
+            const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(game.blackPlayerId) });
+
+            if (!whitePlayer || !blackPlayer) return null;
+
+            return {
+              id: game._id,
+              result: game.result || '1/2-1/2',
+              timeControl: `${Math.floor((game.timeControl || 600) / 60)} min`,
+              duration: game.endedAt && game.createdAt ? Math.floor((new Date(game.endedAt) - new Date(game.createdAt)) / 1000) : 0,
+              moves: (game.moves || []).length,
+              gameType: game.gameType || 'casual',
+              createdAt: game.createdAt,
+              endedAt: game.endedAt,
+              whitePlayer: {
+                id: whitePlayer._id,
+                username: whitePlayer.username,
+                rating: whitePlayer.chessRating || 1200
+              },
+              blackPlayer: {
+                id: blackPlayer._id,
+                username: blackPlayer.username,
+                rating: blackPlayer.chessRating || 1200
+              }
+            };
           }));
 
-          return res.status(200).json({ success: true, games: gameList });
+          // Filter out null results
+          const validGames = gamesWithPlayers.filter(g => g !== null);
+
+          return res.status(200).json({ success: true, games: validGames });
         } catch (error) {
           console.error('Error fetching games:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch games' });

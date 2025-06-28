@@ -170,7 +170,7 @@ const MultiplayerChess = ({
         black: session.blackTimeLeft || session.timeControl
       });
       
-      // Update turn indicator based on server state
+      // Update turn indicator based on server state and player color
       const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
                           (serverTurn === 'b' && playerColor === 'black');
       setIsMyTurn(isPlayerTurn);
@@ -197,7 +197,8 @@ const MultiplayerChess = ({
         version: session.version,
         whiteTime: session.whiteTimeLeft,
         blackTime: session.blackTimeLeft,
-        status: session.status
+        status: session.status,
+        playerColor
       });
       
     } catch (error) {
@@ -420,7 +421,8 @@ const MultiplayerChess = ({
         console.log('⏸️ Not your turn:', { 
           currentTurn: game.turn(), 
           playerColor, 
-          isMyTurn 
+          isMyTurn,
+          activePlayer
         });
         return false;
       }
