@@ -34,10 +34,12 @@ const MultiplayerChess = ({
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
   const [serverTimeLeft, setServerTimeLeft] = useState({ white: initialTimeControl, black: initialTimeControl });
+  const [connectionError, setConnectionError] = useState(null);
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
+  const lastSyncTimeRef = useRef(Date.now());
 
   // Set up API
   const api = axios.create({
@@ -77,6 +79,7 @@ const MultiplayerChess = ({
   const initializeMultiplayerGame = async () => {
     try {
       setSyncStatus('connecting');
+      setConnectionError(null);
       
       // Fetch game session from server
       const response = await api.get(`/?endpoint=game-sessions&gameId=${gameId}`);
@@ -106,16 +109,18 @@ const MultiplayerChess = ({
         setGameStarted(true);
         setSyncStatus('connected');
         
-        // Start real-time sync with server (every 500ms for responsive gameplay)
+        // Start real-time sync with server (every 1 second for responsive gameplay)
         startServerSync();
         
       } else {
         console.error('❌ Failed to load game session:', response.data.message);
         setSyncStatus('error');
+        setConnectionError('Failed to load game session');
       }
     } catch (error) {
       console.error('❌ Error initializing multiplayer game:', error);
       setSyncStatus('error');
+      setConnectionError('Connection failed. Please check your internet connection.');
     }
   };
 
@@ -197,6 +202,7 @@ const MultiplayerChess = ({
       
     } catch (error) {
       console.error('❌ Error loading server game state:', error);
+      setConnectionError('Failed to load game state');
     }
   };
 
@@ -205,12 +211,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
-    // Sync with server every 500ms for responsive real-time gameplay
+    // Sync with server every 1 second for responsive real-time gameplay
     syncIntervalRef.current = setInterval(() => {
       syncWithServer();
-    }, 500);
+    }, 1000);
     
-    console.log('🔄 Started server sync (500ms interval)');
+    console.log('🔄 Started server sync (1 second interval)');
   };
 
   const syncWithServer = async () => {
@@ -223,7 +229,7 @@ const MultiplayerChess = ({
         const serverState = response.data.gameState;
         
         console.log('🔄 Server sync update:', {
-          serverMoves: serverState.moves.length,
+          serverMoves: serverState.moves?.length || 0,
           localMoves: moveHistory.length,
           serverVersion: serverState.version,
           localVersion: gameStateVersion,
@@ -237,6 +243,7 @@ const MultiplayerChess = ({
         // Always update from server state (server is authoritative)
         loadServerGameState(serverState);
         setSyncStatus('synced');
+        setConnectionError(null);
         
         // Update version
         setGameStateVersion(serverState.version);
@@ -248,10 +255,22 @@ const MultiplayerChess = ({
         
         // Flash sync indicator
         setTimeout(() => setSyncStatus('connected'), 1000);
+      } else {
+        // No updates, but connection is good
+        setSyncStatus('connected');
+        setConnectionError(null);
       }
+      
+      lastSyncTimeRef.current = Date.now();
     } catch (error) {
       console.error('❌ Error syncing with server:', error);
       setSyncStatus('error');
+      
+      // Check if we've been disconnected for too long
+      const timeSinceLastSync = Date.now() - lastSyncTimeRef.current;
+      if (timeSinceLastSync > 10000) { // 10 seconds
+        setConnectionError('Connection lost. Attempting to reconnect...');
+      }
     }
   };
 
@@ -405,6 +424,11 @@ const MultiplayerChess = ({
         });
         return false;
       }
+
+      if (syncStatus === 'error' || connectionError) {
+        console.log('⏸️ Connection error, cannot make move');
+        return false;
+      }
     }
 
     const gameCopy = new Chess(game.fen());
@@ -460,23 +484,23 @@ const MultiplayerChess = ({
                 turn: response.data.turn
               });
               
-              // Don't update local state - let server sync handle it
-              setSyncStatus('synced');
-              
               // Clear selection immediately for responsiveness
               setSelectedSquare(null);
               setPossibleMoves([]);
               
               // Server will update game state via sync
-              setTimeout(() => setSyncStatus('connected'), 1000);
+              setSyncStatus('connected');
+              setConnectionError(null);
             } else {
               console.error('❌ Server rejected move:', response.data.message);
               setSyncStatus('error');
+              setConnectionError('Move rejected by server');
               return false;
             }
           } catch (error) {
             console.error('❌ Error sending move to server:', error);
             setSyncStatus('error');
+            setConnectionError('Failed to send move. Check your connection.');
             return false;
           }
         }
@@ -488,13 +512,13 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
+  }, [game, gameMode, playerColor, gameStarted, isMyTurn, syncStatus, connectionError, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
     if (gameMode === 'multiplayer') {
-      if (!gameStarted || !isMyTurn) {
-        console.log('⏸️ Not your turn or game not started:', { gameStarted, isMyTurn });
+      if (!gameStarted || !isMyTurn || syncStatus === 'error' || connectionError) {
+        console.log('⏸️ Cannot interact:', { gameStarted, isMyTurn, syncStatus, connectionError });
         return;
       }
     }
@@ -525,7 +549,7 @@ const MultiplayerChess = ({
         setPossibleMoves(moves.map(move => move.to));
       }
     }
-  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn]);
+  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, syncStatus, connectionError]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
     return makeMove(sourceSquare, targetSquare, piece);
@@ -548,6 +572,7 @@ const MultiplayerChess = ({
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(true);
     setGameStateVersion(0);
+    setConnectionError(null);
     isInitializedRef.current = false;
     
     // Stop sync
@@ -631,6 +656,23 @@ const MultiplayerChess = ({
 
   return (
     <div className="w-full max-w-7xl mx-auto">
+      {/* Connection Error Banner */}
+      {connectionError && (
+        <motion.div
+          className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-center"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+        >
+          <div className="flex items-center justify-center space-x-2">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <span>{connectionError}</span>
+          </div>
+        </motion.div>
+      )}
+
       {/* Responsive Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
         
@@ -680,7 +722,7 @@ const MultiplayerChess = ({
                 customSquareStyles={customSquareStyles}
                 boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
                 animationDuration={200}
-                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn))}
+                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn && syncStatus !== 'error' && !connectionError))}
                 customBoardStyle={{
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
