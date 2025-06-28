@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
 const GameTimer = ({ 
@@ -11,11 +11,13 @@ const GameTimer = ({
   currentTime = null // For server-controlled timers
 }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
+  const intervalRef = useRef(null);
+  const lastUpdateRef = useRef(Date.now());
 
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
       // Use server time for multiplayer games
-      setTimeLeft(currentTime);
+      setTimeLeft(Math.max(0, currentTime));
     } else {
       // Use initial time for practice games
       setTimeLeft(initialTime);
@@ -23,25 +25,49 @@ const GameTimer = ({
   }, [initialTime, serverControlled, currentTime]);
 
   useEffect(() => {
-    let interval = null;
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     
     // Only run local timer for practice mode (non-server-controlled)
     if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft(time => {
-          if (time <= 1) {
-            onTimeUp && onTimeUp(player);
-            return 0;
-          }
-          return time - 1;
-        });
-      }, 1000);
-    } else if (!isActive || isPaused) {
-      clearInterval(interval);
+      lastUpdateRef.current = Date.now();
+      
+      intervalRef.current = setInterval(() => {
+        const now = Date.now();
+        const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
+        
+        if (elapsed >= 1) {
+          setTimeLeft(prevTime => {
+            const newTime = Math.max(0, prevTime - elapsed);
+            if (newTime <= 0 && onTimeUp) {
+              onTimeUp(player);
+            }
+            return newTime;
+          });
+          lastUpdateRef.current = now;
+        }
+      }, 100); // Check every 100ms for accuracy
     }
     
-    return () => clearInterval(interval);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [isActive, isPaused, timeLeft, onTimeUp, player, serverControlled]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, []);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -56,11 +82,11 @@ const GameTimer = ({
     return 'from-green-500 to-green-700';
   };
 
-  const progress = (timeLeft / initialTime) * 100;
+  const progress = initialTime > 0 ? (timeLeft / initialTime) * 100 : 0;
 
   return (
     <motion.div 
-      className={`relative p-3 lg:p-4 rounded-xl shadow-lg ${
+      className={`relative p-3 lg:p-4 rounded-xl shadow-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 ${
         isActive ? 'ring-2 ring-blue-400 ring-opacity-75' : ''
       }`}
       animate={{ 
@@ -78,6 +104,9 @@ const GameTimer = ({
           {serverControlled && (
             <span className="block text-xs text-blue-500">Server Sync</span>
           )}
+          {isActive && !isPaused && (
+            <span className="block text-xs text-green-500">● Active</span>
+          )}
         </div>
         
         {/* Progress bar */}
@@ -91,12 +120,23 @@ const GameTimer = ({
         </div>
         
         {/* Warning indicators */}
-        {timeLeft <= 30 && (
+        {timeLeft <= 30 && timeLeft > 0 && (
           <motion.div
             className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"
             animate={{ scale: [1, 1.2, 1] }}
             transition={{ repeat: Infinity, duration: 1 }}
           />
+        )}
+        
+        {/* Time up indicator */}
+        {timeLeft <= 0 && (
+          <motion.div
+            className="absolute inset-0 bg-red-500/20 rounded-xl flex items-center justify-center"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ repeat: Infinity, duration: 1 }}
+          >
+            <span className="text-red-600 font-bold text-sm">TIME UP</span>
+          </motion.div>
         )}
       </div>
     </motion.div>

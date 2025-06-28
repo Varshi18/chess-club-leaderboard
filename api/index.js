@@ -314,13 +314,17 @@ export default async function handler(req, res) {
             return res.status(400).json({ success: false, message: `Not your turn. Current turn: ${currentTurn === 'w' ? 'White' : 'Black'}` });
           }
 
+          // Calculate time spent on this move (simple estimation)
+          const now = new Date();
+          const lastMoveTime = gameSession.lastMoveAt || gameSession.createdAt;
+          const timeSpent = Math.min(30, Math.floor((now - new Date(lastMoveTime)) / 1000)); // Max 30 seconds per move
+
           // Update game state
           const newMoves = [...(gameSession.moves || []), move];
           const newTurn = currentTurn === 'w' ? 'b' : 'w';
           const newVersion = (gameSession.version || 0) + 1;
 
           // Update timers (subtract time from current player)
-          const timeSpent = 5; // Assume 5 seconds per move for now
           const updatedTimeLeft = {
             whiteTimeLeft: currentTurn === 'w' 
               ? Math.max(0, (gameSession.whiteTimeLeft || gameSession.timeControl) - timeSpent)
@@ -339,7 +343,7 @@ export default async function handler(req, res) {
                 turn: newTurn,
                 version: newVersion,
                 lastMoveBy: decoded.userId,
-                lastMoveAt: new Date(),
+                lastMoveAt: now,
                 ...updatedTimeLeft
               }
             }
@@ -349,6 +353,7 @@ export default async function handler(req, res) {
             success: true, 
             version: newVersion,
             turn: newTurn,
+            timeLeft: updatedTimeLeft,
             message: 'Move recorded successfully' 
           });
         } catch (error) {
@@ -433,28 +438,30 @@ export default async function handler(req, res) {
             status: 'pending'
           }).toArray();
 
-          // Populate challenger data
-          const challengesWithUsers = await Promise.all(challenges.map(async (challenge) => {
-            const challenger = await db.collection('users').findOne({ _id: toObjectId(challenge.challengerId) });
-            if (!challenger) return null;
-
-            return {
-              id: challenge.id,
-              timeControl: challenge.timeControl,
-              status: challenge.status,
-              createdAt: challenge.createdAt,
-              challenger: {
-                id: challenger._id,
-                username: challenger.username,
-                chessRating: challenger.chessRating || 1200
+          // Populate challenger data safely
+          const challengesWithUsers = [];
+          for (const challenge of challenges) {
+            try {
+              const challenger = await db.collection('users').findOne({ _id: toObjectId(challenge.challengerId) });
+              if (challenger) {
+                challengesWithUsers.push({
+                  id: challenge.id,
+                  timeControl: challenge.timeControl,
+                  status: challenge.status,
+                  createdAt: challenge.createdAt,
+                  challenger: {
+                    id: challenger._id,
+                    username: challenger.username,
+                    chessRating: challenger.chessRating || 1200
+                  }
+                });
               }
-            };
-          }));
+            } catch (error) {
+              console.error('Error populating challenger data:', error);
+            }
+          }
 
-          // Filter out null results
-          const validChallenges = challengesWithUsers.filter(c => c !== null);
-
-          return res.status(200).json({ success: true, challenges: validChallenges });
+          return res.status(200).json({ success: true, challenges: challengesWithUsers });
         } catch (error) {
           console.error('Error fetching received challenges:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
@@ -467,29 +474,31 @@ export default async function handler(req, res) {
             challengerId: decoded.userId
           }).toArray();
 
-          // Populate challenged user data
-          const challengesWithUsers = await Promise.all(challenges.map(async (challenge) => {
-            const challenged = await db.collection('users').findOne({ _id: toObjectId(challenge.challengedUserId) });
-            if (!challenged) return null;
-
-            return {
-              id: challenge.id,
-              timeControl: challenge.timeControl,
-              status: challenge.status,
-              gameId: challenge.gameId,
-              createdAt: challenge.createdAt,
-              challenged: {
-                id: challenged._id,
-                username: challenged.username,
-                chessRating: challenged.chessRating || 1200
+          // Populate challenged user data safely
+          const challengesWithUsers = [];
+          for (const challenge of challenges) {
+            try {
+              const challenged = await db.collection('users').findOne({ _id: toObjectId(challenge.challengedUserId) });
+              if (challenged) {
+                challengesWithUsers.push({
+                  id: challenge.id,
+                  timeControl: challenge.timeControl,
+                  status: challenge.status,
+                  gameId: challenge.gameId,
+                  createdAt: challenge.createdAt,
+                  challenged: {
+                    id: challenged._id,
+                    username: challenged.username,
+                    chessRating: challenged.chessRating || 1200
+                  }
+                });
               }
-            };
-          }));
+            } catch (error) {
+              console.error('Error populating challenged user data:', error);
+            }
+          }
 
-          // Filter out null results
-          const validChallenges = challengesWithUsers.filter(c => c !== null);
-
-          return res.status(200).json({ success: true, challenges: validChallenges });
+          return res.status(200).json({ success: true, challenges: challengesWithUsers });
         } catch (error) {
           console.error('Error fetching sent challenges:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
@@ -603,33 +612,38 @@ export default async function handler(req, res) {
             _id: { $ne: toObjectId(decoded.userId) }
           }).limit(20).toArray();
 
-          // Check friendship status for each user
-          const userResults = await Promise.all(users.map(async (user) => {
-            // Check if already friends
-            const friendship = await db.collection('friendships').findOne({
-              $or: [
-                { user1Id: decoded.userId, user2Id: user._id.toString() },
-                { user1Id: user._id.toString(), user2Id: decoded.userId }
-              ]
-            });
+          // Check friendship status for each user safely
+          const userResults = [];
+          for (const user of users) {
+            try {
+              // Check if already friends
+              const friendship = await db.collection('friendships').findOne({
+                $or: [
+                  { user1Id: decoded.userId, user2Id: user._id.toString() },
+                  { user1Id: user._id.toString(), user2Id: decoded.userId }
+                ]
+              });
 
-            // Check if friend request already sent
-            const friendRequest = await db.collection('friend_requests').findOne({
-              $or: [
-                { senderId: decoded.userId, receiverId: user._id.toString(), status: 'pending' },
-                { senderId: user._id.toString(), receiverId: decoded.userId, status: 'pending' }
-              ]
-            });
+              // Check if friend request already sent
+              const friendRequest = await db.collection('friend_requests').findOne({
+                $or: [
+                  { senderId: decoded.userId, receiverId: user._id.toString(), status: 'pending' },
+                  { senderId: user._id.toString(), receiverId: decoded.userId, status: 'pending' }
+                ]
+              });
 
-            return {
-              id: user._id.toString(),
-              username: user.username,
-              fullName: user.fullName,
-              chessRating: user.chessRating || 1200,
-              isFriend: !!friendship,
-              friendRequestSent: !!friendRequest
-            };
-          }));
+              userResults.push({
+                id: user._id.toString(),
+                username: user.username,
+                fullName: user.fullName,
+                chessRating: user.chessRating || 1200,
+                isFriend: !!friendship,
+                friendRequestSent: !!friendRequest
+              });
+            } catch (error) {
+              console.error('Error checking friendship status:', error);
+            }
+          }
 
           return res.status(200).json({ success: true, users: userResults });
         } catch (error) {
@@ -646,25 +660,27 @@ export default async function handler(req, res) {
             status: 'pending'
           }).toArray();
 
-          // Populate sender data
-          const requestsWithUsers = await Promise.all(requests.map(async (request) => {
-            const sender = await db.collection('users').findOne({ _id: toObjectId(request.senderId) });
-            if (!sender) return null;
-
-            return {
-              id: request._id,
-              sender: {
-                id: sender._id,
-                username: sender.username,
-                chessRating: sender.chessRating || 1200
+          // Populate sender data safely
+          const requestsWithUsers = [];
+          for (const request of requests) {
+            try {
+              const sender = await db.collection('users').findOne({ _id: toObjectId(request.senderId) });
+              if (sender) {
+                requestsWithUsers.push({
+                  id: request._id,
+                  sender: {
+                    id: sender._id,
+                    username: sender.username,
+                    chessRating: sender.chessRating || 1200
+                  }
+                });
               }
-            };
-          }));
+            } catch (error) {
+              console.error('Error populating sender data:', error);
+            }
+          }
 
-          // Filter out null results
-          const validRequests = requestsWithUsers.filter(r => r !== null);
-
-          return res.status(200).json({ success: true, requests: validRequests });
+          return res.status(200).json({ success: true, requests: requestsWithUsers });
         } catch (error) {
           console.error('Error fetching friend requests:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch friend requests' });
@@ -681,24 +697,26 @@ export default async function handler(req, res) {
             ]
           }).toArray();
 
-          // Populate friend data
-          const friendsWithUsers = await Promise.all(friendships.map(async (friendship) => {
-            const friendId = friendship.user1Id === decoded.userId ? friendship.user2Id : friendship.user1Id;
-            const friend = await db.collection('users').findOne({ _id: toObjectId(friendId) });
-            if (!friend) return null;
+          // Populate friend data safely
+          const friendsWithUsers = [];
+          for (const friendship of friendships) {
+            try {
+              const friendId = friendship.user1Id === decoded.userId ? friendship.user2Id : friendship.user1Id;
+              const friend = await db.collection('users').findOne({ _id: toObjectId(friendId) });
+              if (friend) {
+                friendsWithUsers.push({
+                  id: friend._id.toString(),
+                  username: friend.username,
+                  chessRating: friend.chessRating || 1200,
+                  lastSeen: friend.lastSeen
+                });
+              }
+            } catch (error) {
+              console.error('Error populating friend data:', error);
+            }
+          }
 
-            return {
-              id: friend._id.toString(),
-              username: friend.username,
-              chessRating: friend.chessRating || 1200,
-              lastSeen: friend.lastSeen
-            };
-          }));
-
-          // Filter out null results
-          const validFriends = friendsWithUsers.filter(f => f !== null);
-
-          return res.status(200).json({ success: true, friends: validFriends });
+          return res.status(200).json({ success: true, friends: friendsWithUsers });
         } catch (error) {
           console.error('Error fetching friends:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch friends' });
@@ -810,24 +828,34 @@ export default async function handler(req, res) {
         try {
           const tournaments = await db.collection('tournaments').find({}).toArray();
 
-          // Populate participant data
-          const tournamentsWithParticipants = await Promise.all(tournaments.map(async (tournament) => {
-            const participants = await Promise.all((tournament.participants || []).map(async (participantId) => {
-              const user = await db.collection('users').findOne({ _id: toObjectId(participantId) });
-              if (!user) return null;
+          // Populate participant data safely
+          const tournamentsWithParticipants = [];
+          for (const tournament of tournaments) {
+            try {
+              const participants = [];
+              for (const participantId of (tournament.participants || [])) {
+                try {
+                  const user = await db.collection('users').findOne({ _id: toObjectId(participantId) });
+                  if (user) {
+                    participants.push({
+                      userId: user._id.toString(),
+                      username: user.username,
+                      rating: user.chessRating || 1200
+                    });
+                  }
+                } catch (error) {
+                  console.error('Error populating participant:', error);
+                }
+              }
 
-              return {
-                userId: user._id.toString(),
-                username: user.username,
-                rating: user.chessRating || 1200
-              };
-            }));
-
-            return {
-              ...tournament,
-              participants: participants.filter(p => p !== null)
-            };
-          }));
+              tournamentsWithParticipants.push({
+                ...tournament,
+                participants
+              });
+            } catch (error) {
+              console.error('Error processing tournament:', error);
+            }
+          }
 
           return res.status(200).json({ success: true, tournaments: tournamentsWithParticipants });
         } catch (error) {
@@ -1047,39 +1075,41 @@ export default async function handler(req, res) {
             status: 'completed'
           }).toArray();
 
-          // Populate player data
-          const gamesWithPlayers = await Promise.all(games.map(async (game) => {
-            const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(game.whitePlayerId) });
-            const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(game.blackPlayerId) });
+          // Populate player data safely
+          const gamesWithPlayers = [];
+          for (const game of games) {
+            try {
+              const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(game.whitePlayerId) });
+              const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(game.blackPlayerId) });
 
-            if (!whitePlayer || !blackPlayer) return null;
-
-            return {
-              id: game._id,
-              result: game.result || '1/2-1/2',
-              timeControl: `${Math.floor((game.timeControl || 600) / 60)} min`,
-              duration: game.endedAt && game.createdAt ? Math.floor((new Date(game.endedAt) - new Date(game.createdAt)) / 1000) : 0,
-              moves: (game.moves || []).length,
-              gameType: game.gameType || 'casual',
-              createdAt: game.createdAt,
-              endedAt: game.endedAt,
-              whitePlayer: {
-                id: whitePlayer._id,
-                username: whitePlayer.username,
-                rating: whitePlayer.chessRating || 1200
-              },
-              blackPlayer: {
-                id: blackPlayer._id,
-                username: blackPlayer.username,
-                rating: blackPlayer.chessRating || 1200
+              if (whitePlayer && blackPlayer) {
+                gamesWithPlayers.push({
+                  id: game._id,
+                  result: game.result || '1/2-1/2',
+                  timeControl: `${Math.floor((game.timeControl || 600) / 60)} min`,
+                  duration: game.endedAt && game.createdAt ? Math.floor((new Date(game.endedAt) - new Date(game.createdAt)) / 1000) : 0,
+                  moves: (game.moves || []).length,
+                  gameType: game.gameType || 'casual',
+                  createdAt: game.createdAt,
+                  endedAt: game.endedAt,
+                  whitePlayer: {
+                    id: whitePlayer._id,
+                    username: whitePlayer.username,
+                    rating: whitePlayer.chessRating || 1200
+                  },
+                  blackPlayer: {
+                    id: blackPlayer._id,
+                    username: blackPlayer.username,
+                    rating: blackPlayer.chessRating || 1200
+                  }
+                });
               }
-            };
-          }));
+            } catch (error) {
+              console.error('Error populating game data:', error);
+            }
+          }
 
-          // Filter out null results
-          const validGames = gamesWithPlayers.filter(g => g !== null);
-
-          return res.status(200).json({ success: true, games: validGames });
+          return res.status(200).json({ success: true, games: gamesWithPlayers });
         } catch (error) {
           console.error('Error fetching games:', error);
           return res.status(500).json({ success: false, message: 'Failed to fetch games' });
