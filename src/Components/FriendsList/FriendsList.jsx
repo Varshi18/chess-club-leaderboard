@@ -306,7 +306,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   return (
     <>
-      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-6xl mx-auto">
+      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl lg:rounded-2xl p-4 lg:p-6 shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-6xl mx-auto">
         {error && (
           <motion.div
             className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-sm"
@@ -325,10 +325,10 @@ const FriendsList = ({ onChallengePlayer }) => {
         )}
 
         {/* Tab Navigation */}
-        <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6 overflow-x-auto">
+        <div className="flex flex-wrap gap-2 lg:gap-4 mb-4 lg:mb-6 overflow-x-auto pb-2">
           <button
             onClick={() => setActiveTab('friends')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
+            className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm lg:text-base whitespace-nowrap ${
               activeTab === 'friends'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -338,7 +338,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('search')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
+            className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm lg:text-base whitespace-nowrap ${
               activeTab === 'search'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -348,7 +348,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('requests')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
+            className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm lg:text-base whitespace-nowrap ${
               activeTab === 'requests'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -358,7 +358,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('challenges')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
+            className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm lg:text-base whitespace-nowrap ${
               activeTab === 'challenges'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -368,7 +368,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('sent')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
+            className={`px-3 lg:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm lg:text-base whitespace-nowrap ${
               activeTab === 'sent'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -387,8 +387,8 @@ const FriendsList = ({ onChallengePlayer }) => {
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Your Friends</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
+              <h3 className="text-lg lg:text-xl font-bold mb-4 text-gray-900 dark:text-white">Your Friends</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-96 overflow-y-auto">
                 {loading ? (
                   <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -397,34 +397,32 @@ const FriendsList = ({ onChallengePlayer }) => {
                   friends.map((friend) => (
                     <motion.div
                       key={friend.id}
-                      className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg hover:bg-gray-100/80 dark:hover:bg-gray-600/80 transition-colors duration-200"
+                      className="flex flex-col p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg hover:bg-gray-100/80 dark:hover:bg-gray-600/80 transition-colors duration-200"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       whileHover={{ scale: 1.02 }}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                      <div className="flex items-center space-x-3 mb-3">
                         <div className="relative">
-                          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                          <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                             {friend.username[0].toUpperCase()}
                           </div>
-                          <div className={`absolute -bottom-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 ${getStatusColor(getOnlineStatus(friend.lastSeen))} rounded-full border-2 border-white dark:border-gray-700`}></div>
+                          <div className={`absolute -bottom-1 -right-1 w-3 h-3 ${getStatusColor(getOnlineStatus(friend.lastSeen))} rounded-full border-2 border-white dark:border-gray-700`}></div>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{friend.username}</div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {friend.chessRating || 'N/A'}</div>
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">{friend.username}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Rating: {friend.chessRating || 'N/A'}</div>
                         </div>
                       </div>
-                      <div className="flex space-x-2 ml-2">
-                        <motion.button
-                          onClick={() => handleChallengeClick(friend)}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          disabled={friend.id === user?.id}
-                        >
-                          Challenge
-                        </motion.button>
-                      </div>
+                      <motion.button
+                        onClick={() => handleChallengeClick(friend)}
+                        className="w-full px-3 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        disabled={friend.id === user?.id}
+                      >
+                        Challenge
+                      </motion.button>
                     </motion.div>
                   ))
                 ) : (
@@ -447,7 +445,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Find Players</h3>
+              <h3 className="text-lg lg:text-xl font-bold mb-4 text-gray-900 dark:text-white">Find Players</h3>
               <div className="mb-4">
                 <input
                   type="text"
@@ -461,7 +459,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-80 overflow-y-auto">
                 {loading ? (
                   <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -470,23 +468,23 @@ const FriendsList = ({ onChallengePlayer }) => {
                   searchResults.map((user) => (
                     <motion.div
                       key={user.id}
-                      className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
+                      className="flex flex-col p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                           {user.username[0].toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{user.username}</div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">{user.username}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Rating: {user.chessRating ?? 'N/A'}</div>
                         </div>
                       </div>
                       <motion.button
                         onClick={() => sendFriendRequest(user.id)}
                         disabled={user.friendRequestSent || user.isFriend}
-                        className={`px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium rounded-lg transition-all duration-300 ${
+                        className={`w-full px-3 py-2 text-sm font-medium rounded-lg transition-all duration-300 ${
                           user.friendRequestSent
                             ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                             : user.isFriend
@@ -523,8 +521,8 @@ const FriendsList = ({ onChallengePlayer }) => {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Friend Requests</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+              <h3 className="text-lg lg:text-xl font-bold mb-4 text-gray-900 dark:text-white">Friend Requests</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-80 overflow-y-auto">
                 {loading ? (
                   <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -533,23 +531,23 @@ const FriendsList = ({ onChallengePlayer }) => {
                   friendRequests.map((request) => (
                     <motion.div
                       key={request.id}
-                      className="flex items-center justify-between p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
+                      className="flex flex-col p-3 bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm rounded-lg"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-yellow-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                           {request.sender.username[0].toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">{request.sender.username}</div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">{request.sender.username}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">Rating: {request.sender.chessRating ?? 'N/A'}</div>
                         </div>
                       </div>
-                      <div className="flex space-x-2 ml-2">
+                      <div className="flex space-x-2">
                         <motion.button
                           onClick={() => acceptFriendRequest(request.id)}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                          className="flex-1 px-3 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                         >
@@ -557,7 +555,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                         </motion.button>
                         <motion.button
                           onClick={() => rejectFriendRequest(request.id)}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                          className="flex-1 px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                         >
@@ -584,33 +582,33 @@ const FriendsList = ({ onChallengePlayer }) => {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Game Challenges</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+              <h3 className="text-lg lg:text-xl font-bold mb-4 text-gray-900 dark:text-white">Game Challenges</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-80 overflow-y-auto">
                 {receivedChallenges.length > 0 ? (
                   receivedChallenges.map((challenge) => (
                     <motion.div
                       key={challenge.id}
-                      className="flex items-center justify-between p-3 bg-yellow-50/80 dark:bg-yellow-900/20 backdrop-blur-sm rounded-lg border border-yellow-200 dark:border-yellow-800"
+                      className="flex flex-col p-3 bg-yellow-50/80 dark:bg-yellow-900/20 backdrop-blur-sm rounded-lg border border-yellow-200 dark:border-yellow-800"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-orange-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                           ⚔️
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">
                             {challenge.challenger.username} challenges you!
                           </div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             {challenge.timeControl / 60} min • Rating: {challenge.challenger.chessRating}
                           </div>
                         </div>
                       </div>
-                      <div className="flex space-x-2 ml-2">
+                      <div className="flex space-x-2">
                         <motion.button
                           onClick={() => respondToChallenge(challenge.id, 'accept')}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                          className="flex-1 px-3 py-2 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                         >
@@ -618,7 +616,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                         </motion.button>
                         <motion.button
                           onClick={() => respondToChallenge(challenge.id, 'decline')}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                          className="flex-1 px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                         >
@@ -645,34 +643,34 @@ const FriendsList = ({ onChallengePlayer }) => {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Sent Challenges</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
+              <h3 className="text-lg lg:text-xl font-bold mb-4 text-gray-900 dark:text-white">Sent Challenges</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-80 overflow-y-auto">
                 {sentChallenges.length > 0 ? (
                   sentChallenges.map((challenge) => (
                     <motion.div
                       key={challenge.id}
-                      className="flex items-center justify-between p-3 bg-blue-50/80 dark:bg-blue-900/20 backdrop-blur-sm rounded-lg border border-blue-200 dark:border-blue-800"
+                      className="flex flex-col p-3 bg-blue-50/80 dark:bg-blue-900/20 backdrop-blur-sm rounded-lg border border-blue-200 dark:border-blue-800"
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                     >
-                      <div className="flex items-center space-x-3 flex-1 min-w-0">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                      <div className="flex items-center space-x-3 mb-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                           📤
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm truncate">
                             Challenge to {challenge.challenged.username}
                           </div>
-                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             {challenge.timeControl / 60} min • Status: {challenge.status}
                           </div>
                         </div>
                       </div>
-                      <div className="flex space-x-2 ml-2">
+                      <div className="flex space-x-2">
                         {challenge.status === 'pending' && (
                           <motion.button
                             onClick={() => cancelChallenge(challenge.id)}
-                            className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                            className="flex-1 px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
                             whileHover={{ scale: 1.05 }}
                             whileTap={{ scale: 0.95 }}
                           >
@@ -680,7 +678,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                           </motion.button>
                         )}
                         {challenge.status === 'accepted' && (
-                          <span className="px-2 sm:px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 text-xs sm:text-sm font-medium rounded-lg">
+                          <span className="flex-1 px-3 py-2 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 text-sm font-medium rounded-lg text-center">
                             Accepted ✓
                           </span>
                         )}

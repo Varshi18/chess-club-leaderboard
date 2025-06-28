@@ -31,10 +31,12 @@ const MultiplayerChess = ({
   const [syncStatus, setSyncStatus] = useState('disconnected');
   const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   const [isMyTurn, setIsMyTurn] = useState(true);
+  const [gameStateVersion, setGameStateVersion] = useState(0);
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const gameStateKeyRef = useRef(null);
+  const lastMoveTimeRef = useRef(Date.now());
 
   // Initialize game state key
   useEffect(() => {
@@ -61,13 +63,17 @@ const MultiplayerChess = ({
 
   const initializeMultiplayerGame = () => {
     try {
-      // Determine player colors deterministically
-      const isWhite = user.id.localeCompare(opponent.id) < 0;
+      // Determine player colors deterministically based on user IDs
+      const userIdNum = parseInt(user.id.replace(/\D/g, '')) || user.id.charCodeAt(0);
+      const opponentIdNum = parseInt(opponent.id.replace(/\D/g, '')) || opponent.id.charCodeAt(0);
+      const isWhite = userIdNum < opponentIdNum;
       const assignedColor = isWhite ? 'white' : 'black';
       
       console.log('🎯 Player color assignment:', {
         userId: user.id,
+        userIdNum,
         opponentId: opponent.id,
+        opponentIdNum,
         assignedColor,
         isWhite
       });
@@ -86,14 +92,19 @@ const MultiplayerChess = ({
         console.log('📂 Loading existing game state');
         try {
           const parsedState = JSON.parse(existingState);
-          loadGameFromState(parsedState);
+          if (parsedState.version && parsedState.moves) {
+            loadGameFromState(parsedState);
+          } else {
+            console.log('🔄 Invalid state format, creating new game');
+            createNewGameState(assignedColor);
+          }
         } catch (error) {
           console.error('❌ Error parsing existing state:', error);
-          createNewGameState();
+          createNewGameState(assignedColor);
         }
       } else {
         console.log('🆕 Creating new game state');
-        createNewGameState();
+        createNewGameState(assignedColor);
       }
       
       setGameStarted(true);
@@ -109,9 +120,13 @@ const MultiplayerChess = ({
     }
   };
 
-  const createNewGameState = () => {
-    const isWhite = user.id.localeCompare(opponent.id) < 0;
+  const createNewGameState = (assignedColor) => {
+    const userIdNum = parseInt(user.id.replace(/\D/g, '')) || user.id.charCodeAt(0);
+    const opponentIdNum = parseInt(opponent.id.replace(/\D/g, '')) || opponent.id.charCodeAt(0);
+    const isWhite = userIdNum < opponentIdNum;
+    
     const initialState = {
+      version: 1,
       moves: [],
       fen: new Chess().fen(),
       turn: 'w',
@@ -122,11 +137,14 @@ const MultiplayerChess = ({
         black: isWhite ? opponent.id : user.id
       },
       whiteUsername: isWhite ? user.username : opponent.username,
-      blackUsername: isWhite ? opponent.username : user.username
+      blackUsername: isWhite ? opponent.username : user.username,
+      createdBy: user.id,
+      lastMoveBy: null
     };
     
     localStorage.setItem(gameStateKeyRef.current, JSON.stringify(initialState));
     setLastSyncTime(initialState.lastUpdate);
+    setGameStateVersion(1);
   };
 
   const startRealTimeSync = () => {
@@ -136,7 +154,7 @@ const MultiplayerChess = ({
     
     syncIntervalRef.current = setInterval(() => {
       syncGameState();
-    }, 1000); // Sync every second for real-time feel
+    }, 500); // Sync every 500ms for better real-time feel
     
     console.log('🔄 Started real-time sync');
   };
@@ -151,11 +169,13 @@ const MultiplayerChess = ({
         const parsedState = JSON.parse(currentState);
         
         // Check if there are new moves since our last sync
-        if (parsedState.lastUpdate > lastSyncTime) {
+        if (parsedState.lastUpdate > lastSyncTime && parsedState.lastMoveBy !== user.id) {
           console.log('🔄 New moves detected, syncing...', {
             serverMoves: parsedState.moves.length,
             localMoves: moveHistory.length,
-            lastUpdate: new Date(parsedState.lastUpdate).toLocaleTimeString()
+            lastUpdate: new Date(parsedState.lastUpdate).toLocaleTimeString(),
+            lastMoveBy: parsedState.lastMoveBy,
+            currentUser: user.id
           });
           
           loadGameFromState(parsedState);
@@ -192,6 +212,7 @@ const MultiplayerChess = ({
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
       setActivePlayer(newGame.turn() === 'w' ? 'white' : 'black');
+      setGameStateVersion(state.version || 0);
       
       // Update turn indicator
       const currentTurn = newGame.turn();
@@ -222,6 +243,7 @@ const MultiplayerChess = ({
       
       const updatedState = {
         ...currentState,
+        version: (currentState.version || 0) + 1,
         moves: [...(currentState.moves || []), newMove.san],
         fen: newGame.fen(),
         turn: newGame.turn(),
@@ -232,12 +254,15 @@ const MultiplayerChess = ({
       
       localStorage.setItem(gameStateKeyRef.current, JSON.stringify(updatedState));
       setLastSyncTime(updatedState.lastUpdate);
+      setGameStateVersion(updatedState.version);
+      lastMoveTimeRef.current = updatedState.lastUpdate;
       
       console.log('💾 Game state saved:', {
         move: newMove.san,
         totalMoves: updatedState.moves.length,
         turn: updatedState.turn,
-        by: user.username
+        by: user.username,
+        version: updatedState.version
       });
       
     } catch (error) {
@@ -465,6 +490,7 @@ const MultiplayerChess = ({
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(true);
+    setGameStateVersion(0);
     
     // Clear localStorage for multiplayer games
     if (gameMode === 'multiplayer' && gameStateKeyRef.current) {
@@ -543,14 +569,15 @@ const MultiplayerChess = ({
   };
 
   return (
-    <div className="w-full">
-      {/* Mobile Layout */}
-      <div className="block xl:hidden">
-        <div className="space-y-4">
-          {/* Mobile Timers */}
-          {gameMode !== 'practice' && gameStarted && (
-            <div className="flex gap-3">
-              <div className="flex-1">
+    <div className="w-full max-w-7xl mx-auto">
+      {/* Responsive Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+        
+        {/* Timers - Mobile: Top, Desktop: Left */}
+        {gameMode !== 'practice' && gameStarted && (
+          <div className="lg:col-span-2 order-1 lg:order-1">
+            <div className="flex lg:flex-col gap-3 lg:gap-4">
+              <div className="flex-1 lg:flex-none">
                 <GameTimer
                   initialTime={timeControl.black}
                   isActive={activePlayer === 'black' && !isPaused && gameStarted}
@@ -559,7 +586,7 @@ const MultiplayerChess = ({
                   isPaused={isPaused}
                 />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 lg:flex-none">
                 <GameTimer
                   initialTime={timeControl.white}
                   isActive={activePlayer === 'white' && !isPaused && gameStarted}
@@ -569,16 +596,18 @@ const MultiplayerChess = ({
                 />
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Mobile Chess Board */}
+        {/* Chess Board - Center */}
+        <div className={`${gameMode === 'practice' ? 'lg:col-span-8' : 'lg:col-span-6'} order-2 lg:order-2`}>
           <motion.div 
-            className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-3 shadow-xl border border-gray-200 dark:border-gray-700"
+            className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl lg:rounded-2xl p-3 lg:p-6 shadow-xl border border-gray-200 dark:border-gray-700"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="aspect-square w-full">
+            <div className="aspect-square w-full max-w-[600px] mx-auto">
               <Chessboard
                 position={gamePosition}
                 onPieceDrop={onPieceDrop}
@@ -594,130 +623,22 @@ const MultiplayerChess = ({
               />
             </div>
           </motion.div>
-
-          {/* Mobile Game Info */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Game Status */}
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 shadow-xl border border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-bold mb-2 text-gray-900 dark:text-white">Status</h3>
-              <div className={`p-2 rounded-lg text-center font-medium text-xs ${
-                gameStatus.includes('Checkmate') || gameStatus.includes('wins') 
-                  ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
-                  : gameStatus.includes('Draw') 
-                  ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200'
-                  : gameStatus.includes('check')
-                  ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-200'
-                  : 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200'
-              }`}>
-                {gameStatus}
-              </div>
-              
-              {gameMode === 'multiplayer' && (
-                <div className="mt-2 space-y-1 text-xs">
-                  <div className="text-gray-600 dark:text-gray-400">
-                    <span className="font-medium">You:</span> {playerColor}
-                  </div>
-                  <div className="text-gray-600 dark:text-gray-400">
-                    <span className="font-medium">Turn:</span> {isMyTurn ? 'Your turn' : 'Opponent\'s turn'}
-                  </div>
-                  <div className={`${getSyncStatusColor()}`}>
-                    ● {getSyncStatusText()}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Move History */}
-            <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 shadow-xl border border-gray-200 dark:border-gray-700">
-              <h3 className="text-sm font-bold mb-2 text-gray-900 dark:text-white">Moves</h3>
-              <div className="max-h-32 overflow-y-auto">
-                {moveHistory.length > 0 ? (
-                  <div className="space-y-1">
-                    {Array.from({ length: Math.ceil(moveHistory.length / 2) }, (_, i) => (
-                      <div key={i} className="flex items-center text-xs">
-                        <span className="text-gray-600 dark:text-gray-400 w-6">
-                          {i + 1}.
-                        </span>
-                        <span className="font-mono text-gray-900 dark:text-white flex-1">
-                          {moveHistory[i * 2]?.san || ''}
-                        </span>
-                        <span className="font-mono text-gray-900 dark:text-white flex-1">
-                          {moveHistory[i * 2 + 1]?.san || ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-400 dark:text-gray-500 text-xs text-center">No moves yet</p>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
-      </div>
 
-      {/* Desktop Layout */}
-      <div className="hidden xl:block">
-        <div className="grid grid-cols-12 gap-6">
-          {/* Desktop Timers */}
-          {gameMode !== 'practice' && gameStarted && (
-            <div className="col-span-2 space-y-4">
-              <GameTimer
-                initialTime={timeControl.black}
-                isActive={activePlayer === 'black' && !isPaused && gameStarted}
-                onTimeUp={handleTimeUp}
-                player="black"
-                isPaused={isPaused}
-              />
-              <GameTimer
-                initialTime={timeControl.white}
-                isActive={activePlayer === 'white' && !isPaused && gameStarted}
-                onTimeUp={handleTimeUp}
-                player="white"
-                isPaused={isPaused}
-              />
-            </div>
-          )}
-
-          {/* Desktop Chess Board */}
-          <div className={`${gameMode === 'practice' ? 'col-span-8' : 'col-span-6'}`}>
-            <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-6 shadow-2xl border border-gray-200 dark:border-gray-700"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5 }}
-            >
-              <div className="aspect-square w-full max-w-[600px] mx-auto">
-                <Chessboard
-                  position={gamePosition}
-                  onPieceDrop={onPieceDrop}
-                  onSquareClick={onSquareClick}
-                  customSquareStyles={customSquareStyles}
-                  boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
-                  animationDuration={200}
-                  arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || isMyTurn)}
-                  customBoardStyle={{
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                  }}
-                />
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Desktop Game Info Panel */}
-          <div className={`${gameMode === 'practice' ? 'col-span-4' : 'col-span-4'} space-y-4`}>
+        {/* Game Info Panel - Mobile: Bottom, Desktop: Right */}
+        <div className={`${gameMode === 'practice' ? 'lg:col-span-4' : 'lg:col-span-4'} order-3 lg:order-3`}>
+          <div className="space-y-4">
             
             {/* Game Status */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
-              <h3 className="text-lg font-bold mb-3 text-gray-900 dark:text-white">Game Status</h3>
+              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Game Status</h3>
               <motion.div 
-                className={`p-4 rounded-lg text-center font-medium ${
+                className={`p-3 lg:p-4 rounded-lg text-center font-medium text-sm lg:text-base ${
                   gameStatus.includes('Checkmate') || gameStatus.includes('wins') 
                     ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
                     : gameStatus.includes('Draw') 
@@ -734,16 +655,16 @@ const MultiplayerChess = ({
               
               {gameMode === 'multiplayer' && opponent && (
                 <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Playing against:</div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{opponent.username}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Rating: {opponent.chessRating}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">You are: {playerColor}</div>
-                  <div className="text-sm text-gray-500 dark:text-gray-400">Time: {timeControl.white / 60} min</div>
-                  <div className={`text-sm mt-1 ${isMyTurn ? 'text-green-600' : 'text-orange-600'}`}>
+                  <div className="text-xs lg:text-sm text-gray-600 dark:text-gray-400">Playing against:</div>
+                  <div className="font-semibold text-gray-900 dark:text-white text-sm lg:text-base">{opponent.username}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Rating: {opponent.chessRating}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">You are: {playerColor}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Time: {timeControl.white / 60} min</div>
+                  <div className={`text-xs lg:text-sm mt-1 font-medium ${isMyTurn ? 'text-green-600' : 'text-orange-600'}`}>
                     {isMyTurn ? '● Your turn' : '● Opponent\'s turn'}
                   </div>
                   <div className={`text-xs mt-1 ${getSyncStatusColor()}`}>
-                    ● {getSyncStatusText()}
+                    ● {getSyncStatusText()} (v{gameStateVersion})
                   </div>
                 </div>
               )}
@@ -751,17 +672,17 @@ const MultiplayerChess = ({
 
             {/* Controls */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              <h3 className="text-lg font-bold mb-3 text-gray-900 dark:text-white">Controls</h3>
+              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Controls</h3>
               <div className="space-y-3">
                 {gameMode === 'practice' && (
                   <motion.button
                     onClick={resetGame}
-                    className="w-full px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300"
+                    className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300 text-sm lg:text-base"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -772,7 +693,7 @@ const MultiplayerChess = ({
                 {gameMode === 'multiplayer' && gameStarted && (
                   <motion.button
                     onClick={() => setIsPaused(!isPaused)}
-                    className="w-full px-4 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300"
+                    className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -784,21 +705,21 @@ const MultiplayerChess = ({
 
             {/* Captured Pieces */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.4 }}
             >
-              <h3 className="text-lg font-bold mb-3 text-gray-900 dark:text-white">Captured Pieces</h3>
-              <div className="space-y-4">
+              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Captured Pieces</h3>
+              <div className="space-y-3 lg:space-y-4">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">White Captured:</h4>
-                  <div className="flex flex-wrap gap-1 min-h-[32px]">
+                  <h4 className="text-xs lg:text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">White Captured:</h4>
+                  <div className="flex flex-wrap gap-1 min-h-[24px] lg:min-h-[32px]">
                     <AnimatePresence>
                       {capturedPieces.white.map((piece, index) => (
                         <motion.span 
                           key={`white-${piece}-${index}`} 
-                          className="text-2xl"
+                          className="text-lg lg:text-2xl"
                           initial={{ scale: 0, rotate: 180 }}
                           animate={{ scale: 1, rotate: 0 }}
                           exit={{ scale: 0, rotate: -180 }}
@@ -809,18 +730,18 @@ const MultiplayerChess = ({
                       ))}
                     </AnimatePresence>
                     {capturedPieces.white.length === 0 && (
-                      <span className="text-gray-400 dark:text-gray-500 text-sm">None</span>
+                      <span className="text-gray-400 dark:text-gray-500 text-xs lg:text-sm">None</span>
                     )}
                   </div>
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Black Captured:</h4>
-                  <div className="flex flex-wrap gap-1 min-h-[32px]">
+                  <h4 className="text-xs lg:text-sm font-medium text-gray-600 dark:text-gray-400 mb-2">Black Captured:</h4>
+                  <div className="flex flex-wrap gap-1 min-h-[24px] lg:min-h-[32px]">
                     <AnimatePresence>
                       {capturedPieces.black.map((piece, index) => (
                         <motion.span 
                           key={`black-${piece}-${index}`} 
-                          className="text-2xl"
+                          className="text-lg lg:text-2xl"
                           initial={{ scale: 0, rotate: 180 }}
                           animate={{ scale: 1, rotate: 0 }}
                           exit={{ scale: 0, rotate: -180 }}
@@ -831,7 +752,7 @@ const MultiplayerChess = ({
                       ))}
                     </AnimatePresence>
                     {capturedPieces.black.length === 0 && (
-                      <span className="text-gray-400 dark:text-gray-500 text-sm">None</span>
+                      <span className="text-gray-400 dark:text-gray-500 text-xs lg:text-sm">None</span>
                     )}
                   </div>
                 </div>
@@ -840,20 +761,20 @@ const MultiplayerChess = ({
 
             {/* Move History */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.5 }}
             >
-              <h3 className="text-lg font-bold mb-3 text-gray-900 dark:text-white">Move History</h3>
-              <div className="max-h-64 overflow-y-auto pr-2">
+              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Move History</h3>
+              <div className="max-h-48 lg:max-h-64 overflow-y-auto pr-2">
                 {moveHistory.length > 0 ? (
                   <div className="space-y-1">
                     <AnimatePresence>
                       {moveHistory.map((move, index) => (
                         <motion.div 
                           key={`move-${index}-${move.san}`} 
-                          className="flex justify-between items-center py-1 px-2 rounded text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                          className="flex justify-between items-center py-1 px-2 rounded text-xs lg:text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                           initial={{ x: -20, opacity: 0 }}
                           animate={{ x: 0, opacity: 1 }}
                           transition={{ duration: 0.3, delay: index * 0.05 }}
@@ -872,7 +793,7 @@ const MultiplayerChess = ({
                     </AnimatePresence>
                   </div>
                 ) : (
-                  <p className="text-gray-400 dark:text-gray-500 text-sm text-center">No moves yet</p>
+                  <p className="text-gray-400 dark:text-gray-500 text-xs lg:text-sm text-center">No moves yet</p>
                 )}
               </div>
             </motion.div>
@@ -890,20 +811,20 @@ const MultiplayerChess = ({
             exit={{ opacity: 0 }}
           >
             <motion.div
-              className="bg-white dark:bg-gray-800 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl"
+              className="bg-white dark:bg-gray-800 rounded-2xl p-6 lg:p-8 max-w-md w-full mx-4 shadow-2xl"
               initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.7, opacity: 0 }}
               transition={{ duration: 0.3 }}
             >
               <div className="text-center">
-                <div className="text-6xl mb-4">
+                <div className="text-4xl lg:text-6xl mb-4">
                   {gameResult.winner ? '🏆' : '🤝'}
                 </div>
-                <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">
+                <h2 className="text-xl lg:text-2xl font-bold mb-4 text-gray-900 dark:text-white">
                   {gameResult.winner ? `${gameResult.winner} Wins!` : "It's a Draw!"}
                 </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm lg:text-base">
                   {gameResult.reason === 'checkmate' && 'By checkmate'}
                   {gameResult.reason === 'timeout' && 'By timeout'}
                   {gameResult.reason === 'stalemate' && 'By stalemate'}
@@ -911,13 +832,13 @@ const MultiplayerChess = ({
                   {gameResult.reason === 'insufficient_material' && 'By insufficient material'}
                   {gameResult.reason === 'fifty_move' && 'By 50-move rule'}
                 </p>
-                <div className="flex gap-4">
+                <div className="flex gap-3 lg:gap-4">
                   <motion.button
                     onClick={() => {
                       setShowGameOver(false);
                       if (onGameEnd) onGameEnd();
                     }}
-                    className="flex-1 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 text-white font-medium rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all duration-300"
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 text-white font-medium rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all duration-300 text-sm lg:text-base"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -929,7 +850,7 @@ const MultiplayerChess = ({
                         resetGame();
                         setShowGameOver(false);
                       }}
-                      className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300"
+                      className="flex-1 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-300 text-sm lg:text-base"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
