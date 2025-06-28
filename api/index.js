@@ -379,8 +379,10 @@ export default async function handler(req, res) {
           {
             $lookup: {
               from: 'users',
-              localField: 'challengerId',
-              foreignField: '_id',
+              let: { challengerId: { $toObjectId: '$challengerId' } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$challengerId'] } } }
+              ],
               as: 'challenger'
             }
           },
@@ -407,8 +409,10 @@ export default async function handler(req, res) {
           {
             $lookup: {
               from: 'users',
-              localField: 'challengedUserId',
-              foreignField: '_id',
+              let: { challengedUserId: { $toObjectId: '$challengedUserId' } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$challengedUserId'] } } }
+              ],
               as: 'challenged'
             }
           },
