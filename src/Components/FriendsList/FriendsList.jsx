@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api', // Fixed: Remove duplicate /api
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -23,6 +23,7 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [friendRequests, setFriendRequests] = useState([]);
+  const [receivedChallenges, setReceivedChallenges] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('friends');
@@ -30,34 +31,31 @@ const FriendsList = ({ onChallengePlayer }) => {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const { user } = useAuth();
 
-  // Fallback friend for testing
-  const fallbackFriend = {
-    id: 'test123',
-    username: 'TestOpponent',
-    chessRating: 1500,
-    lastSeen: new Date().toISOString(),
-  };
-
   useEffect(() => {
     fetchFriends();
     fetchFriendRequests();
+    fetchReceivedChallenges();
+    
+    // Poll for new challenges every 5 seconds
+    const interval = setInterval(fetchReceivedChallenges, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchFriends = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('/friends');
+      const response = await api.get('/?endpoint=friends');
       if (response.data.success) {
         setFriends(response.data.friends);
       } else {
-        setError('Failed to load friends. Using fallback friend for testing.');
-        setFriends([fallbackFriend]);
+        setError('Failed to load friends.');
+        setFriends([]);
       }
     } catch (error) {
       console.error('Error fetching friends:', error.message);
-      setError(`Unable to connect to server. Using fallback friend for testing.`);
-      setFriends([fallbackFriend]);
+      setError('Unable to connect to server.');
+      setFriends([]);
     } finally {
       setLoading(false);
     }
@@ -65,12 +63,23 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const fetchFriendRequests = async () => {
     try {
-      const response = await api.get('/friends?type=requests');
+      const response = await api.get('/?endpoint=friends&type=requests');
       if (response.data.success) {
         setFriendRequests(response.data.requests);
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error.message);
+    }
+  };
+
+  const fetchReceivedChallenges = async () => {
+    try {
+      const response = await api.get('/?endpoint=challenges&action=received');
+      if (response.data.success) {
+        setReceivedChallenges(response.data.challenges);
+      }
+    } catch (error) {
+      console.error('Error fetching challenges:', error.message);
     }
   };
 
@@ -83,9 +92,8 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/friends?q=${encodeURIComponent(query)}`);
+      const response = await api.get(`/?endpoint=friends&q=${encodeURIComponent(query)}`);
       if (response.data.success) {
-        // Filter out current user from search results
         setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
         setSearchResults([]);
@@ -102,7 +110,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const sendFriendRequest = async (userId) => {
     try {
-      const response = await api.post('/friends', { userId });
+      const response = await api.post('/?endpoint=friends', { userId });
       if (response.data.success) {
         setSearchResults((prev) =>
           prev.map((user) =>
@@ -120,7 +128,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('/friends', { requestId, action: 'accept' });
+      const response = await api.patch('/?endpoint=friends', { requestId, action: 'accept' });
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
@@ -135,7 +143,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const rejectFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('/friends', { requestId, action: 'reject' });
+      const response = await api.patch('/?endpoint=friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
       } else {
@@ -147,32 +155,65 @@ const FriendsList = ({ onChallengePlayer }) => {
     }
   };
 
+  const sendChallenge = async (friendId, timeControl) => {
+    try {
+      const response = await api.post('/?endpoint=challenges&action=send', {
+        challengedUserId: friendId,
+        timeControl: timeControl
+      });
+      
+      if (response.data.success) {
+        setShowChallengeModal(false);
+        setSelectedFriend(null);
+        setError(null);
+        alert('Challenge sent successfully!');
+      } else {
+        setError('Failed to send challenge: ' + response.data.message);
+      }
+    } catch (error) {
+      console.error('Error sending challenge:', error.message);
+      setError('Error sending challenge. Please try again.');
+    }
+  };
+
+  const respondToChallenge = async (challengeId, response) => {
+    try {
+      const apiResponse = await api.patch('/?endpoint=challenges&action=respond', {
+        challengeId,
+        response
+      });
+      
+      if (apiResponse.data.success) {
+        fetchReceivedChallenges();
+        if (response === 'accept' && onChallengePlayer) {
+          // Find the challenge to get challenger info
+          const challenge = receivedChallenges.find(c => c.id === challengeId);
+          if (challenge) {
+            onChallengePlayer({
+              id: challenge.challenger.id,
+              username: challenge.challenger.username,
+              chessRating: challenge.challenger.chessRating,
+              timeControl: challenge.timeControl,
+              gameId: apiResponse.data.gameId
+            });
+          }
+        }
+      } else {
+        setError('Failed to respond to challenge: ' + apiResponse.data.message);
+      }
+    } catch (error) {
+      console.error('Error responding to challenge:', error.message);
+      setError('Error responding to challenge. Please try again.');
+    }
+  };
+
   const handleChallengeClick = (friend) => {
-    // Prevent challenging self
     if (friend.id === user?.id) {
       setError('Cannot challenge yourself.');
       return;
     }
-    console.log('Challenge clicked for friend:', friend);
     setSelectedFriend(friend);
     setShowChallengeModal(true);
-  };
-
-  const sendChallenge = (timeControl) => {
-    if (onChallengePlayer && selectedFriend && selectedFriend.id !== user?.id) {
-      console.log('Sending challenge:', { friend: selectedFriend, timeControl });
-      onChallengePlayer({
-        id: selectedFriend.id,
-        username: selectedFriend.username,
-        chessRating: selectedFriend.chessRating || 0,
-        timeControl,
-      });
-      setShowChallengeModal(false);
-      setSelectedFriend(null);
-    } else {
-      console.error('Challenge failed: Invalid friend or attempting to challenge self');
-      setError('Failed to send challenge. Cannot challenge yourself.');
-    }
   };
 
   const getOnlineStatus = (lastSeen) => {
@@ -188,12 +229,9 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'online':
-        return 'bg-green-500';
-      case 'away':
-        return 'bg-yellow-500';
-      default:
-        return 'bg-gray-500';
+      case 'online': return 'bg-green-500';
+      case 'away': return 'bg-yellow-500';
+      default: return 'bg-gray-500';
     }
   };
 
@@ -208,6 +246,12 @@ const FriendsList = ({ onChallengePlayer }) => {
             exit={{ opacity: 0 }}
           >
             {error}
+            <button 
+              onClick={() => setError(null)}
+              className="float-right text-red-600 hover:text-red-800"
+            >
+              ×
+            </button>
           </motion.div>
         )}
 
@@ -241,6 +285,16 @@ const FriendsList = ({ onChallengePlayer }) => {
             }`}
           >
             Requests ({friendRequests.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('challenges')}
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+              activeTab === 'challenges'
+                ? 'bg-blue-500 text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            }`}
+          >
+            Challenges ({receivedChallenges.length})
           </button>
         </div>
 
@@ -283,10 +337,10 @@ const FriendsList = ({ onChallengePlayer }) => {
                       <div className="flex space-x-2 ml-2">
                         <motion.button
                           onClick={() => handleChallengeClick(friend)}
-                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
+                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          disabled={getOnlineStatus(friend.lastSeen) !== 'online' || friend.id === user?.id}
+                          disabled={friend.id === user?.id}
                         >
                           Challenge
                         </motion.button>
@@ -297,7 +351,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                   <div className="text-center py-8">
                     <div className="text-4xl mb-4">👥</div>
                     <p className="text-gray-500 dark:text-gray-400">
-                      {error ? 'Failed to load friends due to server error.' : 'No friends yet. Add some friends to start playing!'}
+                      No friends yet. Add some friends to start playing!
                     </p>
                   </div>
                 )}
@@ -441,6 +495,67 @@ const FriendsList = ({ onChallengePlayer }) => {
               </div>
             </motion.div>
           )}
+
+          {activeTab === 'challenges' && (
+            <motion.div
+              key="challenges"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Game Challenges</h3>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {receivedChallenges.length > 0 ? (
+                  receivedChallenges.map((challenge) => (
+                    <motion.div
+                      key={challenge.id}
+                      className="flex items-center justify-between p-3 bg-yellow-50/80 dark:bg-yellow-900/20 backdrop-blur-sm rounded-lg border border-yellow-200 dark:border-yellow-800"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
+                      <div className="flex items-center space-x-3 flex-1 min-w-0">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-r from-orange-500 to-red-600 rounded-full flex items-center justify-center text-white font-bold text-sm sm:text-base">
+                          ⚔️
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 dark:text-white text-sm sm:text-base truncate">
+                            {challenge.challenger.username} challenges you!
+                          </div>
+                          <div className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                            {challenge.timeControl / 60} min • Rating: {challenge.challenger.chessRating}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex space-x-2 ml-2">
+                        <motion.button
+                          onClick={() => respondToChallenge(challenge.id, 'accept')}
+                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-green-500 to-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          Accept
+                        </motion.button>
+                        <motion.button
+                          onClick={() => respondToChallenge(challenge.id, 'decline')}
+                          className="px-2 sm:px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                        >
+                          Decline
+                        </motion.button>
+                      </div>
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-4">⚔️</div>
+                    <p className="text-gray-500 dark:text-gray-400">No pending challenges</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
 
@@ -470,13 +585,13 @@ const FriendsList = ({ onChallengePlayer }) => {
 
               <div className="space-y-3 mb-6">
                 {[
-                  { name: 'Blitz', time: '5+0', minutes: 5 },
-                  { name: 'Rapid', time: '10+0', minutes: 10 },
-                  { name: 'Classical', time: '30+0', minutes: 30 },
+                  { name: 'Blitz', time: '5+0', seconds: 300 },
+                  { name: 'Rapid', time: '10+0', seconds: 600 },
+                  { name: 'Classical', time: '30+0', seconds: 1800 },
                 ].map((timeControl) => (
                   <motion.button
                     key={timeControl.name}
-                    onClick={() => sendChallenge(timeControl.minutes * 60)}
+                    onClick={() => sendChallenge(selectedFriend.id, timeControl.seconds)}
                     className="w-full p-4 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 text-left"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
