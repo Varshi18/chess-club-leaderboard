@@ -76,18 +76,27 @@ const MultiplayerChess = ({
         // Load existing moves if any
         if (session.moves && session.moves.length > 0) {
           const newGame = new Chess();
-          session.moves.forEach(move => {
+          let loadedHistory = [];
+          
+          // Load moves one by one and build history
+          session.moves.forEach((move, index) => {
             try {
-              newGame.move(move);
+              const moveResult = newGame.move(move);
+              if (moveResult) {
+                loadedHistory.push(moveResult);
+              }
             } catch (error) {
               console.error('Error loading move:', move, error);
             }
           });
+          
           setGame(newGame);
           setGamePosition(newGame.fen());
-          setMoveHistory(newGame.history({ verbose: true }));
+          setMoveHistory(loadedHistory); // Use the built history instead of calling history() again
           setActivePlayer(newGame.turn() === 'w' ? 'white' : 'black');
-          updateCapturedPieces(newGame.history({ verbose: true }));
+          
+          // Update captured pieces with the loaded history
+          updateCapturedPieces(loadedHistory);
           
           // Generate complete PGN from loaded moves
           const completePgn = generateCompletePGN(newGame);
@@ -214,8 +223,11 @@ const MultiplayerChess = ({
       if (move) {
         setGame(gameCopy);
         setGamePosition(gameCopy.fen());
+        
+        // Get the updated history and append the new move
         const newHistory = gameCopy.history({ verbose: true });
         setMoveHistory(newHistory);
+        
         updateGameStatus(gameCopy);
         updateCapturedPieces(newHistory);
         setSelectedSquare(null);
