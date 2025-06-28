@@ -520,6 +520,56 @@ export default async function handler(req, res) {
         return res.json({ success: true, challenges: formattedChallenges });
       }
 
+      if (req.method === 'GET' && action === 'sent') {
+        // Get challenges sent by this user
+        const sentChallenges = await challenges.find({
+          challengerId: new ObjectId(decoded.userId),
+          status: { $in: ['pending', 'accepted'] }
+        }).toArray();
+
+        const challengedIds = sentChallenges.map(c => c.challengedId);
+        const challengedUsers = await users.find({ _id: { $in: challengedIds } })
+          .project({ password: 0 })
+          .toArray();
+
+        const challengedMap = Object.fromEntries(challengedUsers.map(u => [u._id.toString(), u]));
+        
+        const formattedChallenges = sentChallenges.map(challenge => ({
+          id: challenge._id.toString(),
+          challenged: {
+            id: challenge.challengedId.toString(),
+            username: challengedMap[challenge.challengedId.toString()]?.username || 'Unknown',
+            chessRating: challengedMap[challenge.challengedId.toString()]?.chessRating || 1200,
+          },
+          timeControl: challenge.timeControl,
+          status: challenge.status,
+          gameId: challenge.gameId ? challenge.gameId.toString() : null,
+          createdAt: challenge.createdAt,
+        }));
+
+        return res.json({ success: true, challenges: formattedChallenges });
+      }
+
+      if (req.method === 'DELETE' && action === 'cancel') {
+        const { challengeId } = req.query;
+        
+        if (!challengeId) {
+          return res.status(400).json({ success: false, message: 'Challenge ID is required' });
+        }
+
+        const result = await challenges.deleteOne({
+          _id: new ObjectId(challengeId),
+          challengerId: new ObjectId(decoded.userId),
+          status: 'pending'
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ success: false, message: 'Challenge not found or cannot be cancelled' });
+        }
+
+        return res.json({ success: true, message: 'Challenge cancelled' });
+      }
+
       if (req.method === 'PATCH' && action === 'respond') {
         const { challengeId, response } = req.body;
         
