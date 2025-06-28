@@ -38,11 +38,11 @@ const FriendsList = ({ onChallengePlayer }) => {
     fetchReceivedChallenges();
     fetchSentChallenges();
     
-    // Poll for new challenges and accepted challenges every 3 seconds
+    // Poll for new challenges and accepted challenges every 2 seconds
     const interval = setInterval(() => {
       fetchReceivedChallenges();
       fetchSentChallenges();
-    }, 3000);
+    }, 2000);
     
     return () => clearInterval(interval);
   }, []);
@@ -96,13 +96,15 @@ const FriendsList = ({ onChallengePlayer }) => {
         const challenges = response.data.challenges;
         setSentChallenges(challenges);
         
-        // Check for accepted challenges and redirect
+        // Check for accepted challenges and redirect both players
         const acceptedChallenge = challenges.find(c => c.status === 'accepted' && c.gameId);
         if (acceptedChallenge && onChallengePlayer) {
+          console.log('🎯 Challenge accepted! Redirecting to game:', acceptedChallenge);
+          
           // Remove the accepted challenge from sent challenges
           setSentChallenges(prev => prev.filter(c => c.id !== acceptedChallenge.id));
           
-          // Redirect to game
+          // Redirect to game with proper game data
           onChallengePlayer({
             id: acceptedChallenge.challenged.id,
             username: acceptedChallenge.challenged.username,
@@ -111,7 +113,10 @@ const FriendsList = ({ onChallengePlayer }) => {
             gameId: acceptedChallenge.gameId
           });
           
-          alert('Your challenge was accepted! Starting game...');
+          // Show notification
+          setTimeout(() => {
+            alert(`🎉 ${acceptedChallenge.challenged.username} accepted your challenge! Starting game...`);
+          }, 500);
         }
       }
     } catch (error) {
@@ -206,7 +211,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         // Add to sent challenges list
         fetchSentChallenges();
         
-        alert('Challenge sent successfully! You will be notified when accepted.');
+        alert('🚀 Challenge sent successfully! You will be notified when accepted.');
       } else {
         setError('Failed to send challenge: ' + response.data.message);
       }
@@ -225,10 +230,13 @@ const FriendsList = ({ onChallengePlayer }) => {
       
       if (apiResponse.data.success) {
         fetchReceivedChallenges();
+        
         if (response === 'accept' && onChallengePlayer) {
           // Find the challenge to get challenger info
           const challenge = receivedChallenges.find(c => c.id === challengeId);
           if (challenge) {
+            console.log('🎯 Accepting challenge and redirecting to game:', challenge);
+            
             // Both players should be redirected to the game
             onChallengePlayer({
               id: challenge.challenger.id,
@@ -239,7 +247,9 @@ const FriendsList = ({ onChallengePlayer }) => {
             });
             
             // Show notification that game is starting
-            alert('Challenge accepted! Starting game...');
+            setTimeout(() => {
+              alert(`🎉 Challenge accepted! Starting game against ${challenge.challenger.username}...`);
+            }, 500);
           }
         }
       } else {
@@ -256,6 +266,7 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.delete(`/?endpoint=challenges&action=cancel&challengeId=${challengeId}`);
       if (response.data.success) {
         fetchSentChallenges();
+        alert('Challenge cancelled successfully.');
       } else {
         setError('Failed to cancel challenge.');
       }
@@ -295,7 +306,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   return (
     <>
-      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700 w-full min-w-[350px]">
+      <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-6xl mx-auto">
         {error && (
           <motion.div
             className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 rounded-lg text-sm"
@@ -313,10 +324,11 @@ const FriendsList = ({ onChallengePlayer }) => {
           </motion.div>
         )}
 
-        <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6">
+        {/* Tab Navigation */}
+        <div className="flex flex-wrap gap-2 sm:gap-4 mb-4 sm:mb-6 overflow-x-auto">
           <button
             onClick={() => setActiveTab('friends')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
               activeTab === 'friends'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -326,7 +338,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('search')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
               activeTab === 'search'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -336,7 +348,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('requests')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
               activeTab === 'requests'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -346,7 +358,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('challenges')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
               activeTab === 'challenges'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -356,7 +368,7 @@ const FriendsList = ({ onChallengePlayer }) => {
           </button>
           <button
             onClick={() => setActiveTab('sent')}
-            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base ${
+            className={`px-3 sm:px-4 py-2 rounded-lg font-medium transition-all duration-300 text-sm sm:text-base whitespace-nowrap ${
               activeTab === 'sent'
                 ? 'bg-blue-500 text-white'
                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
@@ -376,9 +388,9 @@ const FriendsList = ({ onChallengePlayer }) => {
               transition={{ duration: 0.3 }}
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Your Friends</h3>
-              <div className="space-y-3 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
                 {loading ? (
-                  <div className="text-center py-4">
+                  <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
                 ) : friends.length > 0 ? (
@@ -416,7 +428,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                     </motion.div>
                   ))
                 ) : (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">👥</div>
                     <p className="text-gray-500 dark:text-gray-400">
                       No friends yet. Add some friends to start playing!
@@ -449,9 +461,9 @@ const FriendsList = ({ onChallengePlayer }) => {
                 />
               </div>
 
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
                 {loading ? (
-                  <div className="text-center py-4">
+                  <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
                 ) : searchResults.length > 0 ? (
@@ -489,12 +501,12 @@ const FriendsList = ({ onChallengePlayer }) => {
                     </motion.div>
                   ))
                 ) : searchQuery && !loading ? (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">🔍</div>
                     <p className="text-gray-500 dark:text-gray-400">No users found</p>
                   </div>
                 ) : (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">🎯</div>
                     <p className="text-gray-500 dark:text-gray-400">Search for players to add as friends</p>
                   </div>
@@ -512,9 +524,9 @@ const FriendsList = ({ onChallengePlayer }) => {
               transition={{ duration: 0.3 }}
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Friend Requests</h3>
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
                 {loading ? (
-                  <div className="text-center py-4">
+                  <div className="col-span-full text-center py-4">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
                 ) : friendRequests.length > 0 ? (
@@ -555,7 +567,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                     </motion.div>
                   ))
                 ) : (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">📭</div>
                     <p className="text-gray-500 dark:text-gray-400">No incoming friend requests</p>
                   </div>
@@ -573,7 +585,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               transition={{ duration: 0.3 }}
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Game Challenges</h3>
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
                 {receivedChallenges.length > 0 ? (
                   receivedChallenges.map((challenge) => (
                     <motion.div
@@ -616,7 +628,7 @@ const FriendsList = ({ onChallengePlayer }) => {
                     </motion.div>
                   ))
                 ) : (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">⚔️</div>
                     <p className="text-gray-500 dark:text-gray-400">No pending challenges</p>
                   </div>
@@ -634,7 +646,7 @@ const FriendsList = ({ onChallengePlayer }) => {
               transition={{ duration: 0.3 }}
             >
               <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Sent Challenges</h3>
-              <div className="space-y-3 max-h-80 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-80 overflow-y-auto">
                 {sentChallenges.length > 0 ? (
                   sentChallenges.map((challenge) => (
                     <motion.div
@@ -667,11 +679,16 @@ const FriendsList = ({ onChallengePlayer }) => {
                             Cancel
                           </motion.button>
                         )}
+                        {challenge.status === 'accepted' && (
+                          <span className="px-2 sm:px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 text-xs sm:text-sm font-medium rounded-lg">
+                            Accepted ✓
+                          </span>
+                        )}
                       </div>
                     </motion.div>
                   ))
                 ) : (
-                  <div className="text-center py-8">
+                  <div className="col-span-full text-center py-8">
                     <div className="text-4xl mb-4">📤</div>
                     <p className="text-gray-500 dark:text-gray-400">No sent challenges</p>
                   </div>
@@ -682,6 +699,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         </AnimatePresence>
       </div>
 
+      {/* Challenge Modal */}
       <AnimatePresence>
         {showChallengeModal && selectedFriend && (
           <motion.div
