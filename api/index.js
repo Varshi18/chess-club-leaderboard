@@ -588,19 +588,29 @@ export default async function handler(req, res) {
         }
 
         if (response === 'accept') {
-          // Create game session in database
+          // Create game session in database with proper server-side state
           const gameId = new ObjectId();
+          
+          // Randomly assign colors (50/50 chance)
+          const challengerIsWhite = Math.random() < 0.5;
+          const whitePlayerId = challengerIsWhite ? challenge.challengerId : challenge.challengedId;
+          const blackPlayerId = challengerIsWhite ? challenge.challengedId : challenge.challengerId;
+          
           const gameSession = {
             _id: gameId,
-            whitePlayerId: challenge.challengerId,
-            blackPlayerId: challenge.challengedId,
+            whitePlayerId: whitePlayerId,
+            blackPlayerId: blackPlayerId,
             timeControl: challenge.timeControl,
             status: 'active',
             moves: [],
             pgn: '',
             fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-            turn: 'w',
+            turn: 'w', // Always starts with white
             version: 1,
+            whiteTimeLeft: challenge.timeControl,
+            blackTimeLeft: challenge.timeControl,
+            lastMoveTime: new Date(),
+            gameStartTime: new Date(),
             createdAt: new Date(),
             challengeId: challenge._id,
             lastUpdate: new Date(),
@@ -616,7 +626,9 @@ export default async function handler(req, res) {
           return res.json({ 
             success: true, 
             message: 'Challenge accepted',
-            gameId: gameId.toString()
+            gameId: gameId.toString(),
+            whitePlayerId: whitePlayerId.toString(),
+            blackPlayerId: blackPlayerId.toString()
           });
         } else {
           await challenges.updateOne(
@@ -631,7 +643,7 @@ export default async function handler(req, res) {
       return res.status(405).json({ success: false, message: 'Method not allowed' });
     }
 
-    // Game sessions for multiplayer - NEW REAL-TIME SYSTEM
+    // Game sessions for multiplayer - COMPLETE SERVER-SIDE MANAGEMENT
     if (endpoint === 'game-sessions') {
       const authHeader = req.headers['authorization'];
       const token = authHeader && authHeader.split(' ')[1];
@@ -650,7 +662,7 @@ export default async function handler(req, res) {
       const gameSessions = db.collection('gameSessions');
       const users = db.collection('users');
 
-      if (req.method === 'GET') {
+      if (req.method === 'GET' && !action) {
         const { gameId } = req.query;
         
         if (!gameId) {
@@ -676,9 +688,63 @@ export default async function handler(req, res) {
           users.findOne({ _id: gameSession.blackPlayerId }, { projection: { username: 1, chessRating: 1 } })
         ]);
 
+        // Update timers based on elapsed time
+        const now = new Date();
+        let updatedWhiteTime = gameSession.whiteTimeLeft;
+        let updatedBlackTime = gameSession.blackTimeLeft;
+        
+        if (gameSession.status === 'active' && gameSession.lastMoveTime) {
+          const elapsedSeconds = Math.floor((now - new Date(gameSession.lastMoveTime)) / 1000);
+          
+          if (gameSession.turn === 'w') {
+            updatedWhiteTime = Math.max(0, gameSession.whiteTimeLeft - elapsedSeconds);
+          } else {
+            updatedBlackTime = Math.max(0, gameSession.blackTimeLeft - elapsedSeconds);
+          }
+          
+          // Check for timeout
+          if (updatedWhiteTime <= 0 || updatedBlackTime <= 0) {
+            const winner = updatedWhiteTime <= 0 ? 'black' : 'white';
+            const result = winner === 'white' ? '1-0' : '0-1';
+            
+            await gameSessions.updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: { 
+                  status: 'completed',
+                  result: result,
+                  reason: 'timeout',
+                  endedAt: now,
+                  whiteTimeLeft: updatedWhiteTime,
+                  blackTimeLeft: updatedBlackTime,
+                  lastUpdate: now
+                }
+              }
+            );
+            
+            gameSession.status = 'completed';
+            gameSession.result = result;
+            gameSession.reason = 'timeout';
+          } else {
+            // Update timers in database
+            await gameSessions.updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: { 
+                  whiteTimeLeft: updatedWhiteTime,
+                  blackTimeLeft: updatedBlackTime,
+                  lastUpdate: now
+                }
+              }
+            );
+          }
+        }
+
         const gameData = {
           ...gameSession,
           id: gameSession._id.toString(),
+          whiteTimeLeft: updatedWhiteTime,
+          blackTimeLeft: updatedBlackTime,
           whitePlayer: {
             id: gameSession.whitePlayerId.toString(),
             username: whitePlayer?.username || 'Unknown',
@@ -695,7 +761,7 @@ export default async function handler(req, res) {
       }
 
       if (req.method === 'PATCH' && action === 'move') {
-        const { gameId, move, fen, pgn } = req.body;
+        const { gameId, move, fen } = req.body;
         
         if (!gameId || !move || !fen) {
           return res.status(400).json({ success: false, message: 'Game ID, move, and FEN are required' });
@@ -715,7 +781,7 @@ export default async function handler(req, res) {
         }
 
         // Check if it's the player's turn
-        const currentTurn = fen.split(' ')[1]; // Extract turn from FEN
+        const currentTurn = gameSession.turn;
         const isWhitePlayer = gameSession.whitePlayerId.toString() === decoded.userId;
         const isPlayerTurn = (currentTurn === 'w' && isWhitePlayer) || (currentTurn === 'b' && !isWhitePlayer);
         
@@ -723,25 +789,82 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: 'Not your turn' });
         }
 
-        // Update game with new move using atomic operation
+        // Check game is still active
+        if (gameSession.status !== 'active') {
+          return res.status(400).json({ success: false, message: 'Game is not active' });
+        }
+
+        // Update timers before processing move
+        const now = new Date();
+        const elapsedSeconds = Math.floor((now - new Date(gameSession.lastMoveTime || gameSession.gameStartTime)) / 1000);
+        
+        let updatedWhiteTime = gameSession.whiteTimeLeft;
+        let updatedBlackTime = gameSession.blackTimeLeft;
+        
+        if (currentTurn === 'w') {
+          updatedWhiteTime = Math.max(0, gameSession.whiteTimeLeft - elapsedSeconds);
+        } else {
+          updatedBlackTime = Math.max(0, gameSession.blackTimeLeft - elapsedSeconds);
+        }
+        
+        // Check for timeout
+        if (updatedWhiteTime <= 0 || updatedBlackTime <= 0) {
+          const winner = updatedWhiteTime <= 0 ? 'black' : 'white';
+          const result = winner === 'white' ? '1-0' : '0-1';
+          
+          await gameSessions.updateOne(
+            { _id: new ObjectId(gameId) },
+            { 
+              $set: { 
+                status: 'completed',
+                result: result,
+                reason: 'timeout',
+                endedAt: now,
+                whiteTimeLeft: updatedWhiteTime,
+                blackTimeLeft: updatedBlackTime,
+                lastUpdate: now
+              }
+            }
+          );
+          
+          return res.status(400).json({ success: false, message: 'Time expired' });
+        }
+
+        // Process the move
         const updatedMoves = [...(gameSession.moves || []), move];
+        const nextTurn = currentTurn === 'w' ? 'b' : 'w';
         const newVersion = (gameSession.version || 0) + 1;
         
+        // Generate PGN
+        let pgn = '';
+        for (let i = 0; i < updatedMoves.length; i += 2) {
+          const moveNumber = Math.floor(i / 2) + 1;
+          pgn += `${moveNumber}. ${updatedMoves[i]}`;
+          if (updatedMoves[i + 1]) {
+            pgn += ` ${updatedMoves[i + 1]}`;
+          }
+          pgn += ' ';
+        }
+        
+        // Update game state with atomic operation
         const updateResult = await gameSessions.updateOne(
           { 
             _id: new ObjectId(gameId),
-            version: gameSession.version // Optimistic locking
+            version: gameSession.version, // Optimistic locking
+            status: 'active' // Ensure game is still active
           },
           { 
             $set: { 
               moves: updatedMoves,
               fen: fen,
-              turn: currentTurn === 'w' ? 'b' : 'w',
-              pgn: pgn || '',
+              turn: nextTurn,
+              pgn: pgn.trim(),
               version: newVersion,
-              lastUpdate: new Date(),
-              lastMoveBy: decoded.userId,
-              lastMoveAt: new Date()
+              whiteTimeLeft: updatedWhiteTime,
+              blackTimeLeft: updatedBlackTime,
+              lastMoveTime: now,
+              lastUpdate: now,
+              lastMoveBy: decoded.userId
             }
           }
         );
@@ -754,7 +877,10 @@ export default async function handler(req, res) {
           success: true, 
           message: 'Move recorded',
           version: newVersion,
-          moves: updatedMoves.length
+          moves: updatedMoves.length,
+          turn: nextTurn,
+          whiteTimeLeft: updatedWhiteTime,
+          blackTimeLeft: updatedBlackTime
         });
       }
 
@@ -795,7 +921,7 @@ export default async function handler(req, res) {
         return res.json({ success: true, message: 'Game ended' });
       }
 
-      // NEW: Real-time sync endpoint
+      // Real-time sync endpoint with server-side timer management
       if (req.method === 'GET' && action === 'sync') {
         const { gameId, lastVersion } = req.query;
         
@@ -816,33 +942,81 @@ export default async function handler(req, res) {
           return res.status(403).json({ success: false, message: 'Access denied' });
         }
 
+        // Update timers based on elapsed time
+        const now = new Date();
+        let updatedWhiteTime = gameSession.whiteTimeLeft;
+        let updatedBlackTime = gameSession.blackTimeLeft;
+        let gameStatus = gameSession.status;
+        let gameResult = gameSession.result;
+        
+        if (gameSession.status === 'active' && gameSession.lastMoveTime) {
+          const elapsedSeconds = Math.floor((now - new Date(gameSession.lastMoveTime)) / 1000);
+          
+          if (gameSession.turn === 'w') {
+            updatedWhiteTime = Math.max(0, gameSession.whiteTimeLeft - elapsedSeconds);
+          } else {
+            updatedBlackTime = Math.max(0, gameSession.blackTimeLeft - elapsedSeconds);
+          }
+          
+          // Check for timeout
+          if (updatedWhiteTime <= 0 || updatedBlackTime <= 0) {
+            const winner = updatedWhiteTime <= 0 ? 'black' : 'white';
+            gameResult = winner === 'white' ? '1-0' : '0-1';
+            gameStatus = 'completed';
+            
+            await gameSessions.updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: { 
+                  status: 'completed',
+                  result: gameResult,
+                  reason: 'timeout',
+                  endedAt: now,
+                  whiteTimeLeft: updatedWhiteTime,
+                  blackTimeLeft: updatedBlackTime,
+                  lastUpdate: now
+                }
+              }
+            );
+          } else {
+            // Update timers in database
+            await gameSessions.updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: { 
+                  whiteTimeLeft: updatedWhiteTime,
+                  blackTimeLeft: updatedBlackTime,
+                  lastUpdate: now
+                }
+              }
+            );
+          }
+        }
+
         const clientVersion = parseInt(lastVersion) || 0;
         const serverVersion = gameSession.version || 0;
 
-        // Only return data if there are updates
-        if (serverVersion > clientVersion) {
-          return res.json({
-            success: true,
-            hasUpdates: true,
-            gameState: {
-              moves: gameSession.moves || [],
-              fen: gameSession.fen,
-              turn: gameSession.turn,
-              version: serverVersion,
-              lastUpdate: gameSession.lastUpdate,
-              lastMoveBy: gameSession.lastMoveBy,
-              status: gameSession.status,
-              result: gameSession.result,
-              pgn: gameSession.pgn || ''
-            }
-          });
-        } else {
-          return res.json({
-            success: true,
-            hasUpdates: false,
-            version: serverVersion
-          });
-        }
+        // Always return current state for real-time updates
+        return res.json({
+          success: true,
+          hasUpdates: true, // Always send updates for real-time sync
+          gameState: {
+            moves: gameSession.moves || [],
+            fen: gameSession.fen,
+            turn: gameSession.turn,
+            version: serverVersion,
+            lastUpdate: now,
+            lastMoveBy: gameSession.lastMoveBy,
+            status: gameStatus,
+            result: gameResult,
+            reason: gameSession.reason,
+            pgn: gameSession.pgn || '',
+            whiteTimeLeft: updatedWhiteTime,
+            blackTimeLeft: updatedBlackTime,
+            whitePlayerId: gameSession.whitePlayerId.toString(),
+            blackPlayerId: gameSession.blackPlayerId.toString()
+          }
+        });
       }
 
       return res.status(405).json({ success: false, message: 'Method not allowed' });

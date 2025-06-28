@@ -6,18 +6,27 @@ const GameTimer = ({
   isActive = false, 
   onTimeUp, 
   player = 'white',
-  isPaused = false 
+  isPaused = false,
+  serverControlled = false,
+  currentTime = null // For server-controlled timers
 }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
 
   useEffect(() => {
-    setTimeLeft(initialTime);
-  }, [initialTime]);
+    if (serverControlled && currentTime !== null) {
+      // Use server time for multiplayer games
+      setTimeLeft(currentTime);
+    } else {
+      // Use initial time for practice games
+      setTimeLeft(initialTime);
+    }
+  }, [initialTime, serverControlled, currentTime]);
 
   useEffect(() => {
     let interval = null;
     
-    if (isActive && !isPaused && timeLeft > 0) {
+    // Only run local timer for practice mode (non-server-controlled)
+    if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft(time => {
           if (time <= 1) {
@@ -32,7 +41,7 @@ const GameTimer = ({
     }
     
     return () => clearInterval(interval);
-  }, [isActive, isPaused, timeLeft, onTimeUp, player]);
+  }, [isActive, isPaused, timeLeft, onTimeUp, player, serverControlled]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -51,7 +60,7 @@ const GameTimer = ({
 
   return (
     <motion.div 
-      className={`relative p-4 rounded-xl shadow-lg ${
+      className={`relative p-3 lg:p-4 rounded-xl shadow-lg ${
         isActive ? 'ring-2 ring-blue-400 ring-opacity-75' : ''
       }`}
       animate={{ 
@@ -61,11 +70,14 @@ const GameTimer = ({
       transition={{ duration: 0.3 }}
     >
       <div className="text-center">
-        <div className={`text-2xl font-bold bg-gradient-to-r ${getTimerColor()} bg-clip-text text-transparent mb-2`}>
+        <div className={`text-xl lg:text-2xl font-bold bg-gradient-to-r ${getTimerColor()} bg-clip-text text-transparent mb-2`}>
           {formatTime(timeLeft)}
         </div>
-        <div className="text-sm text-gray-600 dark:text-gray-400 capitalize mb-2">
+        <div className="text-xs lg:text-sm text-gray-600 dark:text-gray-400 capitalize mb-2">
           {player} Player
+          {serverControlled && (
+            <span className="block text-xs text-blue-500">Server Sync</span>
+          )}
         </div>
         
         {/* Progress bar */}

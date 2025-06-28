@@ -33,6 +33,7 @@ const MultiplayerChess = ({
   const [isMyTurn, setIsMyTurn] = useState(true);
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
+  const [serverTimeLeft, setServerTimeLeft] = useState({ white: initialTimeControl, black: initialTimeControl });
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
@@ -55,7 +56,7 @@ const MultiplayerChess = ({
   // Initialize multiplayer game
   useEffect(() => {
     if (gameMode === 'multiplayer' && gameId && opponent && user && !isInitializedRef.current) {
-      console.log('🎮 Initializing server-side multiplayer game:', { 
+      console.log('🎮 Initializing server-controlled multiplayer game:', { 
         gameId, 
         opponent: opponent.username, 
         user: user.username 
@@ -75,6 +76,8 @@ const MultiplayerChess = ({
 
   const initializeMultiplayerGame = async () => {
     try {
+      setSyncStatus('connecting');
+      
       // Fetch game session from server
       const response = await api.get(`/?endpoint=game-sessions&gameId=${gameId}`);
       
@@ -82,14 +85,14 @@ const MultiplayerChess = ({
         const session = response.data.gameSession;
         setGameSession(session);
         
-        console.log('🎯 Game session loaded:', session);
+        console.log('🎯 Server-controlled game session loaded:', session);
         
-        // Determine player color
+        // Server determines player colors - no client-side assignment
         const isWhite = session.whitePlayerId === user.id;
         const assignedColor = isWhite ? 'white' : 'black';
         setPlayerColor(assignedColor);
         
-        console.log('🎨 Player color assignment:', {
+        console.log('🎨 Server assigned colors:', {
           userId: user.id,
           whitePlayerId: session.whitePlayerId,
           blackPlayerId: session.blackPlayerId,
@@ -97,26 +100,13 @@ const MultiplayerChess = ({
           isWhite
         });
         
-        // Set time control
-        setTimeControl({ 
-          white: session.timeControl, 
-          black: session.timeControl 
-        });
-        
-        // Load existing game state
-        if (session.moves && session.moves.length > 0) {
-          loadGameFromServerState(session);
-        } else {
-          // New game
-          setGameStateVersion(session.version || 1);
-          setActivePlayer('white');
-          setIsMyTurn(assignedColor === 'white');
-        }
+        // Load server-controlled game state
+        loadServerGameState(session);
         
         setGameStarted(true);
         setSyncStatus('connected');
         
-        // Start real-time sync with server
+        // Start real-time sync with server (every 500ms for responsive gameplay)
         startServerSync();
         
       } else {
@@ -129,7 +119,7 @@ const MultiplayerChess = ({
     }
   };
 
-  const loadGameFromServerState = (session) => {
+  const loadServerGameState = (session) => {
     try {
       const newGame = new Chess();
       
@@ -147,16 +137,37 @@ const MultiplayerChess = ({
         });
       }
       
+      // Use server FEN if available, otherwise use computed FEN
+      if (session.fen) {
+        try {
+          newGame.load(session.fen);
+        } catch (error) {
+          console.warn('⚠️ Invalid FEN from server, using computed position');
+        }
+      }
+      
       setGame(newGame);
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
-      setActivePlayer(newGame.turn() === 'w' ? 'white' : 'black');
+      
+      // Server controls turn state
+      const serverTurn = session.turn || newGame.turn();
+      setActivePlayer(serverTurn === 'w' ? 'white' : 'black');
       setGameStateVersion(session.version || 0);
       
-      // Update turn indicator
-      const currentTurn = newGame.turn();
-      const isPlayerTurn = (currentTurn === 'w' && playerColor === 'white') || 
-                          (currentTurn === 'b' && playerColor === 'black');
+      // Server controls timers
+      setServerTimeLeft({
+        white: session.whiteTimeLeft || session.timeControl,
+        black: session.blackTimeLeft || session.timeControl
+      });
+      setTimeControl({
+        white: session.whiteTimeLeft || session.timeControl,
+        black: session.blackTimeLeft || session.timeControl
+      });
+      
+      // Update turn indicator based on server state
+      const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
+                          (serverTurn === 'b' && playerColor === 'black');
       setIsMyTurn(isPlayerTurn);
       
       updateCapturedPieces(newGame.history({ verbose: true }));
@@ -169,15 +180,23 @@ const MultiplayerChess = ({
       
       updateGameStatus(newGame);
       
-      console.log('✅ Game state loaded from server:', {
-        moves: session.moves.length,
-        turn: currentTurn,
+      // Check for game end
+      if (session.status === 'completed') {
+        handleServerGameEnd(session.result, session.reason);
+      }
+      
+      console.log('✅ Server game state loaded:', {
+        moves: session.moves?.length || 0,
+        turn: serverTurn,
         isMyTurn: isPlayerTurn,
-        version: session.version
+        version: session.version,
+        whiteTime: session.whiteTimeLeft,
+        blackTime: session.blackTimeLeft,
+        status: session.status
       });
       
     } catch (error) {
-      console.error('❌ Error loading game from server state:', error);
+      console.error('❌ Error loading server game state:', error);
     }
   };
 
@@ -186,12 +205,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
-    // Sync with server every 1 second for real-time updates
+    // Sync with server every 500ms for responsive real-time gameplay
     syncIntervalRef.current = setInterval(() => {
       syncWithServer();
-    }, 1000);
+    }, 500);
     
-    console.log('🔄 Started server sync (1s interval)');
+    console.log('🔄 Started server sync (500ms interval)');
   };
 
   const syncWithServer = async () => {
@@ -203,31 +222,32 @@ const MultiplayerChess = ({
       if (response.data.success && response.data.hasUpdates) {
         const serverState = response.data.gameState;
         
-        console.log('🔄 Server updates detected:', {
+        console.log('🔄 Server sync update:', {
           serverMoves: serverState.moves.length,
           localMoves: moveHistory.length,
           serverVersion: serverState.version,
           localVersion: gameStateVersion,
           lastMoveBy: serverState.lastMoveBy,
-          currentUser: user.id
+          currentUser: user.id,
+          serverTurn: serverState.turn,
+          whiteTime: serverState.whiteTimeLeft,
+          blackTime: serverState.blackTimeLeft
         });
         
-        // Only update if the move wasn't made by current user
-        if (serverState.lastMoveBy !== user.id) {
-          loadGameFromServerState(serverState);
-          setSyncStatus('synced');
-          
-          // Flash sync indicator
-          setTimeout(() => setSyncStatus('connected'), 1000);
-        }
+        // Always update from server state (server is authoritative)
+        loadServerGameState(serverState);
+        setSyncStatus('synced');
         
-        // Update version regardless
+        // Update version
         setGameStateVersion(serverState.version);
         
         // Check for game end
         if (serverState.status === 'completed' && serverState.result) {
-          handleGameEnd(serverState.result, serverState.reason);
+          handleServerGameEnd(serverState.result, serverState.reason);
         }
+        
+        // Flash sync indicator
+        setTimeout(() => setSyncStatus('connected'), 1000);
       }
     } catch (error) {
       console.error('❌ Error syncing with server:', error);
@@ -235,7 +255,7 @@ const MultiplayerChess = ({
     }
   };
 
-  const handleGameEnd = (result, reason) => {
+  const handleServerGameEnd = (result, reason) => {
     let gameResult;
     if (result === '1-0') {
       gameResult = { winner: 'White', reason };
@@ -253,6 +273,8 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
+    
+    console.log('🏁 Game ended by server:', gameResult);
   };
 
   const updateGameStatus = useCallback((gameInstance) => {
@@ -281,7 +303,7 @@ const MultiplayerChess = ({
       }
       setGameStatus(status);
       if (gameMode === 'multiplayer') {
-        // Send game end to server
+        // Server will handle game end
         endGameOnServer(result);
       }
     } else if (gameInstance.isCheck()) {
@@ -375,12 +397,12 @@ const MultiplayerChess = ({
         return false;
       }
       
-      const currentTurn = game.turn();
-      const isPlayerTurn = (currentTurn === 'w' && playerColor === 'white') || 
-                          (currentTurn === 'b' && playerColor === 'black');
-      
-      if (!isPlayerTurn) {
-        console.log('⏸️ Not your turn:', { currentTurn, playerColor, isPlayerTurn });
+      if (!isMyTurn) {
+        console.log('⏸️ Not your turn:', { 
+          currentTurn: game.turn(), 
+          playerColor, 
+          isMyTurn 
+        });
         return false;
       }
     }
@@ -395,34 +417,32 @@ const MultiplayerChess = ({
       });
 
       if (move) {
-        console.log('✅ Move made:', move.san, 'by', user.username);
+        console.log('✅ Move attempted:', move.san, 'by', user.username);
         
-        // Update local state immediately for responsiveness
-        setGame(gameCopy);
-        setGamePosition(gameCopy.fen());
-        
-        const newHistory = gameCopy.history({ verbose: true });
-        setMoveHistory(newHistory);
-        
-        updateGameStatus(gameCopy);
-        updateCapturedPieces(newHistory);
-        setSelectedSquare(null);
-        setPossibleMoves([]);
-        setActivePlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
-        
-        // Update turn indicator
-        const nextTurn = gameCopy.turn();
-        const isNextPlayerTurn = (nextTurn === 'w' && playerColor === 'white') || 
-                               (nextTurn === 'b' && playerColor === 'black');
-        setIsMyTurn(isNextPlayerTurn);
-        
-        // Generate and update PGN
-        const pgn = generatePGN(gameCopy);
-        if (onPgnUpdate) {
-          onPgnUpdate(pgn);
+        // For practice mode, update immediately
+        if (gameMode === 'practice') {
+          setGame(gameCopy);
+          setGamePosition(gameCopy.fen());
+          
+          const newHistory = gameCopy.history({ verbose: true });
+          setMoveHistory(newHistory);
+          
+          updateGameStatus(gameCopy);
+          updateCapturedPieces(newHistory);
+          setSelectedSquare(null);
+          setPossibleMoves([]);
+          setActivePlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
+          
+          // Generate and update PGN
+          const pgn = generatePGN(gameCopy);
+          if (onPgnUpdate) {
+            onPgnUpdate(pgn);
+          }
+          
+          return true;
         }
 
-        // Send move to server for multiplayer games
+        // For multiplayer, send to server and let server update state
         if (gameMode === 'multiplayer' && gameId) {
           try {
             setSyncStatus('syncing');
@@ -430,24 +450,34 @@ const MultiplayerChess = ({
             const response = await api.patch('/?endpoint=game-sessions&action=move', {
               gameId,
               move: move.san,
-              fen: gameCopy.fen(),
-              pgn
+              fen: gameCopy.fen()
             });
             
             if (response.data.success) {
-              setGameStateVersion(response.data.version);
-              setSyncStatus('synced');
               console.log('📡 Move sent to server successfully:', {
                 move: move.san,
-                version: response.data.version
+                version: response.data.version,
+                turn: response.data.turn
               });
+              
+              // Don't update local state - let server sync handle it
+              setSyncStatus('synced');
+              
+              // Clear selection immediately for responsiveness
+              setSelectedSquare(null);
+              setPossibleMoves([]);
+              
+              // Server will update game state via sync
+              setTimeout(() => setSyncStatus('connected'), 1000);
             } else {
-              console.error('❌ Failed to send move to server:', response.data.message);
+              console.error('❌ Server rejected move:', response.data.message);
               setSyncStatus('error');
+              return false;
             }
           } catch (error) {
             console.error('❌ Error sending move to server:', error);
             setSyncStatus('error');
+            return false;
           }
         }
 
@@ -458,7 +488,7 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
+  }, [game, gameMode, playerColor, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
@@ -512,6 +542,7 @@ const MultiplayerChess = ({
     setGameResult(null);
     setShowGameOver(false);
     setTimeControl({ white: initialTimeControl, black: initialTimeControl });
+    setServerTimeLeft({ white: initialTimeControl, black: initialTimeControl });
     setActivePlayer('white');
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
@@ -578,6 +609,7 @@ const MultiplayerChess = ({
 
   const getSyncStatusColor = () => {
     switch (syncStatus) {
+      case 'connecting': return 'text-yellow-500';
       case 'connected': return 'text-blue-500';
       case 'synced': return 'text-green-500';
       case 'syncing': return 'text-yellow-500';
@@ -588,10 +620,11 @@ const MultiplayerChess = ({
 
   const getSyncStatusText = () => {
     switch (syncStatus) {
+      case 'connecting': return 'Connecting...';
       case 'connected': return 'Connected';
       case 'synced': return 'Synced ✓';
       case 'syncing': return 'Syncing...';
-      case 'error': return 'Sync Error';
+      case 'error': return 'Connection Error';
       default: return 'Disconnected';
     }
   };
@@ -607,20 +640,24 @@ const MultiplayerChess = ({
             <div className="flex lg:flex-col gap-3 lg:gap-4">
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl.black}
+                  initialTime={serverTimeLeft.black}
                   isActive={activePlayer === 'black' && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
                   player="black"
                   isPaused={isPaused}
+                  serverControlled={gameMode === 'multiplayer'}
+                  currentTime={serverTimeLeft.black}
                 />
               </div>
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl.white}
+                  initialTime={serverTimeLeft.white}
                   isActive={activePlayer === 'white' && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
                   player="white"
                   isPaused={isPaused}
+                  serverControlled={gameMode === 'multiplayer'}
+                  currentTime={serverTimeLeft.white}
                 />
               </div>
             </div>
@@ -695,7 +732,7 @@ const MultiplayerChess = ({
                       gameSession.whitePlayer?.chessRating}
                   </div>
                   <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">You are: {playerColor}</div>
-                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Time: {timeControl.white / 60} min</div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Time: {Math.floor(initialTimeControl / 60)} min</div>
                   <div className={`text-xs lg:text-sm mt-1 font-medium ${isMyTurn ? 'text-green-600' : 'text-orange-600'}`}>
                     {isMyTurn ? '● Your turn' : '● Opponent\'s turn'}
                   </div>
