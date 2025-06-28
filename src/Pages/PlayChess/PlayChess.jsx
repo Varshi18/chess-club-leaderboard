@@ -27,7 +27,9 @@ const PlayChess = () => {
       console.error('Invalid friend data or attempting to challenge self:', friendData);
       return;
     }
-    const newGameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Use the gameId from the challenge response if available
+    const newGameId = friendData.gameId || `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     setGameId(newGameId);
     setOpponent({
       id: friendData.id,
@@ -38,6 +40,7 @@ const PlayChess = () => {
     setActiveMode('multiplayer');
     setGameInProgress(true);
     setAllMoves([]); // Reset moves for new game
+    setPgn(''); // Reset PGN for new game
     console.log('Challenge set up:', { gameId: newGameId, opponent: friendData, timeControl: friendData.timeControl });
   };
 
@@ -62,29 +65,33 @@ const PlayChess = () => {
     console.log('PGN updated:', newPgn);
     setPgn(newPgn);
     
-    // Parse moves from PGN for the moves list
+    // Parse moves from PGN for the moves list - improved parsing
     if (newPgn) {
       const lines = newPgn.split('\n');
       const moveLines = lines.filter(line => !line.startsWith('[') && line.trim() !== '');
       const movesText = moveLines.join(' ');
-      const moveMatches = movesText.match(/\d+\.\s*([^\s]+)(?:\s+([^\s]+))?/g);
+      
+      // Remove result indicators and extract moves
+      const cleanMovesText = movesText.replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/, '');
+      const moveMatches = cleanMovesText.match(/\d+\.\s*([^\s]+)(?:\s+([^\s]+))?/g);
       
       if (moveMatches) {
         const moves = [];
         moveMatches.forEach(match => {
-          const parts = match.split(/\d+\.\s*/)[1];
-          if (parts) {
-            const [whiteMove, blackMove] = parts.split(/\s+/);
-            if (whiteMove && whiteMove !== '1-0' && whiteMove !== '0-1' && whiteMove !== '1/2-1/2') {
-              moves.push(whiteMove);
-            }
-            if (blackMove && blackMove !== '1-0' && blackMove !== '0-1' && blackMove !== '1/2-1/2') {
-              moves.push(blackMove);
-            }
+          const parts = match.replace(/\d+\.\s*/, '');
+          const [whiteMove, blackMove] = parts.split(/\s+/);
+          
+          if (whiteMove && whiteMove !== '1-0' && whiteMove !== '0-1' && whiteMove !== '1/2-1/2' && whiteMove !== '*') {
+            moves.push(whiteMove);
+          }
+          if (blackMove && blackMove !== '1-0' && blackMove !== '0-1' && blackMove !== '1/2-1/2' && blackMove !== '*') {
+            moves.push(blackMove);
           }
         });
         setAllMoves(moves);
       }
+    } else {
+      setAllMoves([]);
     }
   };
 

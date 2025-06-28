@@ -31,12 +31,13 @@ const MultiplayerChess = ({
   const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
   const [waitingForOpponent, setWaitingForOpponent] = useState(false);
   const [gameSession, setGameSession] = useState(null);
+  const [fullPgn, setFullPgn] = useState(''); // Store complete PGN
   
   const { user } = useAuth();
 
   // Set up API
   const api = axios.create({
-    baseURL: '/api',
+    baseURL: '/',
     headers: { 'Content-Type': 'application/json' },
   });
 
@@ -57,7 +58,7 @@ const MultiplayerChess = ({
 
   const initializeMultiplayerGame = async () => {
     try {
-      const response = await api.get(`/?endpoint=game-sessions&gameId=${gameId}`);
+      const response = await api.get(`?endpoint=game-sessions&gameId=${gameId}`);
       if (response.data.success) {
         const session = response.data.gameSession;
         setGameSession(session);
@@ -87,6 +88,13 @@ const MultiplayerChess = ({
           setMoveHistory(newGame.history({ verbose: true }));
           setActivePlayer(newGame.turn() === 'w' ? 'white' : 'black');
           updateCapturedPieces(newGame.history({ verbose: true }));
+          
+          // Generate complete PGN from loaded moves
+          const completePgn = generateCompletePGN(newGame);
+          setFullPgn(completePgn);
+          if (onPgnUpdate) {
+            onPgnUpdate(completePgn);
+          }
         }
         
         setGameStarted(true);
@@ -150,10 +158,24 @@ const MultiplayerChess = ({
     setCapturedPieces(captured);
   }, [trackCapturedPieces]);
 
-  const generatePGN = useCallback((gameInstance) => {
+  const generateCompletePGN = useCallback((gameInstance) => {
     const history = gameInstance.history();
     let pgn = '';
     
+    // Add headers for multiplayer games
+    if (gameMode === 'multiplayer' && opponent) {
+      const now = new Date();
+      pgn += `[Event "Chess Club Game"]\n`;
+      pgn += `[Site "IIT Dharwad Chess Club"]\n`;
+      pgn += `[Date "${now.toISOString().split('T')[0]}"]\n`;
+      pgn += `[Round "?"]\n`;
+      pgn += `[White "${playerColor === 'white' ? user.username : opponent.username}"]\n`;
+      pgn += `[Black "${playerColor === 'black' ? user.username : opponent.username}"]\n`;
+      pgn += `[Result "*"]\n`;
+      pgn += `[TimeControl "${timeControl.white}"]\n\n`;
+    }
+    
+    // Add moves
     for (let i = 0; i < history.length; i += 2) {
       const moveNumber = Math.floor(i / 2) + 1;
       pgn += `${moveNumber}. ${history[i]}`;
@@ -163,6 +185,7 @@ const MultiplayerChess = ({
       pgn += ' ';
     }
     
+    // Add result if game is over
     if (gameInstance.isGameOver()) {
       if (gameInstance.isCheckmate()) {
         pgn += gameInstance.turn() === 'w' ? '0-1' : '1-0';
@@ -172,7 +195,7 @@ const MultiplayerChess = ({
     }
     
     return pgn.trim();
-  }, []);
+  }, [gameMode, opponent, playerColor, user, timeControl]);
 
   const makeMove = useCallback(async (sourceSquare, targetSquare, piece) => {
     if (gameMode === 'multiplayer' && (!gameStarted || game.turn() !== playerColor[0])) {
@@ -199,19 +222,20 @@ const MultiplayerChess = ({
         setPossibleMoves([]);
         setActivePlayer(gameCopy.turn() === 'w' ? 'white' : 'black');
         
-        // Generate and update PGN
-        const pgn = generatePGN(gameCopy);
+        // Generate complete PGN and update
+        const completePgn = generateCompletePGN(gameCopy);
+        setFullPgn(completePgn);
         if (onPgnUpdate) {
-          onPgnUpdate(pgn);
+          onPgnUpdate(completePgn);
         }
 
         // Send move to server for multiplayer games
         if (gameMode === 'multiplayer' && gameId) {
           try {
-            await api.patch('/?endpoint=game-sessions&action=move', {
+            await api.patch('?endpoint=game-sessions&action=move', {
               gameId,
               move: move.san,
-              pgn
+              pgn: completePgn
             });
           } catch (error) {
             console.error('Error sending move to server:', error);
@@ -225,12 +249,12 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, gameId]);
+  }, [game, gameMode, playerColor, gameStarted, updateGameStatus, updateCapturedPieces, onPgnUpdate, generateCompletePGN, gameId]);
 
   const endMultiplayerGame = async (result) => {
     if (gameMode === 'multiplayer' && gameId) {
       try {
-        await api.patch('/?endpoint=game-sessions&action=end', {
+        await api.patch('?endpoint=game-sessions&action=end', {
           gameId,
           result: result.winner ? (result.winner === 'White' ? '1-0' : '0-1') : '1/2-1/2',
           reason: result.reason
@@ -297,6 +321,7 @@ const MultiplayerChess = ({
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
     setWaitingForOpponent(false);
+    setFullPgn('');
     updateGameStatus(newGame);
     if (onPgnUpdate) {
       onPgnUpdate('');
