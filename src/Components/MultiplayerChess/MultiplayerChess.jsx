@@ -29,27 +29,35 @@ const MultiplayerChess = ({
   const [isPaused, setIsPaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
   const [syncStatus, setSyncStatus] = useState('disconnected');
-  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   const [isMyTurn, setIsMyTurn] = useState(true);
   const [gameStateVersion, setGameStateVersion] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const gameStateKeyRef = useRef(null);
-  const lastMoveTimeRef = useRef(Date.now());
+  const isInitializedRef = useRef(false);
 
   // Initialize game state key
   useEffect(() => {
     if (gameMode === 'multiplayer' && gameId) {
-      gameStateKeyRef.current = `chess_realtime_${gameId}`;
+      gameStateKeyRef.current = `chess_game_${gameId}`;
       console.log('🎮 Game state key:', gameStateKeyRef.current);
     }
   }, [gameMode, gameId]);
 
   // Initialize multiplayer game
   useEffect(() => {
-    if (gameMode === 'multiplayer' && gameId && opponent && user) {
-      console.log('🎮 Initializing multiplayer game:', { gameId, opponent: opponent.username, user: user.username });
+    if (gameMode === 'multiplayer' && gameId && opponent && user && !isInitializedRef.current) {
+      console.log('🎮 Initializing multiplayer game:', { 
+        gameId, 
+        opponent: opponent.username, 
+        user: user.username,
+        opponentId: opponent.id,
+        userId: user.id
+      });
+      
+      isInitializedRef.current = true;
       initializeMultiplayerGame();
     }
     
@@ -63,19 +71,16 @@ const MultiplayerChess = ({
 
   const initializeMultiplayerGame = () => {
     try {
-      // Determine player colors deterministically based on user IDs
-      const userIdNum = parseInt(user.id.replace(/\D/g, '')) || user.id.charCodeAt(0);
-      const opponentIdNum = parseInt(opponent.id.replace(/\D/g, '')) || opponent.id.charCodeAt(0);
-      const isWhite = userIdNum < opponentIdNum;
+      // Determine player colors using string comparison for consistency
+      const isWhite = user.id < opponent.id;
       const assignedColor = isWhite ? 'white' : 'black';
       
       console.log('🎯 Player color assignment:', {
         userId: user.id,
-        userIdNum,
         opponentId: opponent.id,
-        opponentIdNum,
         assignedColor,
-        isWhite
+        isWhite,
+        comparison: user.id < opponent.id
       });
       
       setPlayerColor(assignedColor);
@@ -84,7 +89,7 @@ const MultiplayerChess = ({
         black: initialTimeControl 
       });
       
-      // Initialize game state
+      // Check for existing game state
       const gameStateKey = gameStateKeyRef.current;
       const existingState = localStorage.getItem(gameStateKey);
       
@@ -92,7 +97,7 @@ const MultiplayerChess = ({
         console.log('📂 Loading existing game state');
         try {
           const parsedState = JSON.parse(existingState);
-          if (parsedState.version && parsedState.moves) {
+          if (parsedState.moves && Array.isArray(parsedState.moves)) {
             loadGameFromState(parsedState);
           } else {
             console.log('🔄 Invalid state format, creating new game');
@@ -110,7 +115,7 @@ const MultiplayerChess = ({
       setGameStarted(true);
       setSyncStatus('connected');
       
-      // Start real-time sync
+      // Start real-time sync with faster polling
       startRealTimeSync();
       
     } catch (error) {
@@ -121,9 +126,7 @@ const MultiplayerChess = ({
   };
 
   const createNewGameState = (assignedColor) => {
-    const userIdNum = parseInt(user.id.replace(/\D/g, '')) || user.id.charCodeAt(0);
-    const opponentIdNum = parseInt(opponent.id.replace(/\D/g, '')) || opponent.id.charCodeAt(0);
-    const isWhite = userIdNum < opponentIdNum;
+    const isWhite = user.id < opponent.id;
     
     const initialState = {
       version: 1,
@@ -139,12 +142,15 @@ const MultiplayerChess = ({
       whiteUsername: isWhite ? user.username : opponent.username,
       blackUsername: isWhite ? opponent.username : user.username,
       createdBy: user.id,
-      lastMoveBy: null
+      lastMoveBy: null,
+      gameStarted: true
     };
     
     localStorage.setItem(gameStateKeyRef.current, JSON.stringify(initialState));
     setLastSyncTime(initialState.lastUpdate);
     setGameStateVersion(1);
+    
+    console.log('💾 Created initial game state:', initialState);
   };
 
   const startRealTimeSync = () => {
@@ -152,11 +158,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
+    // Faster sync for better real-time experience
     syncIntervalRef.current = setInterval(() => {
       syncGameState();
-    }, 500); // Sync every 500ms for better real-time feel
+    }, 300); // Sync every 300ms
     
-    console.log('🔄 Started real-time sync');
+    console.log('🔄 Started real-time sync (300ms interval)');
   };
 
   const syncGameState = () => {
@@ -169,13 +176,18 @@ const MultiplayerChess = ({
         const parsedState = JSON.parse(currentState);
         
         // Check if there are new moves since our last sync
-        if (parsedState.lastUpdate > lastSyncTime && parsedState.lastMoveBy !== user.id) {
+        if (parsedState.lastUpdate > lastSyncTime && 
+            parsedState.lastMoveBy !== user.id && 
+            parsedState.version > gameStateVersion) {
+          
           console.log('🔄 New moves detected, syncing...', {
             serverMoves: parsedState.moves.length,
             localMoves: moveHistory.length,
             lastUpdate: new Date(parsedState.lastUpdate).toLocaleTimeString(),
             lastMoveBy: parsedState.lastMoveBy,
-            currentUser: user.id
+            currentUser: user.id,
+            serverVersion: parsedState.version,
+            localVersion: gameStateVersion
           });
           
           loadGameFromState(parsedState);
@@ -197,16 +209,18 @@ const MultiplayerChess = ({
       const newGame = new Chess();
       
       // Apply all moves from the state
-      state.moves.forEach((move, index) => {
-        try {
-          const result = newGame.move(move);
-          if (!result) {
-            console.warn(`⚠️ Invalid move at index ${index}:`, move);
+      if (state.moves && state.moves.length > 0) {
+        state.moves.forEach((move, index) => {
+          try {
+            const result = newGame.move(move);
+            if (!result) {
+              console.warn(`⚠️ Invalid move at index ${index}:`, move);
+            }
+          } catch (error) {
+            console.error(`❌ Error applying move ${index}:`, move, error);
           }
-        } catch (error) {
-          console.error(`❌ Error applying move ${index}:`, move, error);
-        }
-      });
+        });
+      }
       
       setGame(newGame);
       setGamePosition(newGame.fen());
@@ -230,6 +244,13 @@ const MultiplayerChess = ({
       
       updateGameStatus(newGame);
       
+      console.log('✅ Game state loaded successfully:', {
+        moves: state.moves.length,
+        turn: currentTurn,
+        isMyTurn: isPlayerTurn,
+        version: state.version
+      });
+      
     } catch (error) {
       console.error('❌ Error loading game from state:', error);
     }
@@ -249,13 +270,13 @@ const MultiplayerChess = ({
         turn: newGame.turn(),
         lastUpdate: Date.now(),
         gameId,
-        lastMoveBy: user.id
+        lastMoveBy: user.id,
+        gameStarted: true
       };
       
       localStorage.setItem(gameStateKeyRef.current, JSON.stringify(updatedState));
       setLastSyncTime(updatedState.lastUpdate);
       setGameStateVersion(updatedState.version);
-      lastMoveTimeRef.current = updatedState.lastUpdate;
       
       console.log('💾 Game state saved:', {
         move: newMove.san,
@@ -378,7 +399,7 @@ const MultiplayerChess = ({
                           (currentTurn === 'b' && playerColor === 'black');
       
       if (!isPlayerTurn) {
-        console.log('⏸️ Not player turn:', { currentTurn, playerColor });
+        console.log('⏸️ Not your turn:', { currentTurn, playerColor, isPlayerTurn });
         return false;
       }
     }
@@ -438,7 +459,7 @@ const MultiplayerChess = ({
     // For multiplayer, check if it's player's turn
     if (gameMode === 'multiplayer') {
       if (!gameStarted || !isMyTurn) {
-        console.log('⏸️ Not your turn or game not started');
+        console.log('⏸️ Not your turn or game not started:', { gameStarted, isMyTurn });
         return;
       }
     }
@@ -491,6 +512,7 @@ const MultiplayerChess = ({
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(true);
     setGameStateVersion(0);
+    isInitializedRef.current = false;
     
     // Clear localStorage for multiplayer games
     if (gameMode === 'multiplayer' && gameStateKeyRef.current) {
@@ -615,7 +637,7 @@ const MultiplayerChess = ({
                 customSquareStyles={customSquareStyles}
                 boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
                 animationDuration={200}
-                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || isMyTurn)}
+                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn))}
                 customBoardStyle={{
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
