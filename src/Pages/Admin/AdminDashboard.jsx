@@ -892,7 +892,7 @@ const GameDetailsModal = ({ game, onClose, onDownloadPGN }) => {
               whileTap={{ scale: 0.98 }}
             >
               Close
-            </button>
+            </motion.button>
           </div>
         </div>
       </motion.div>
