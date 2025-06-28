@@ -526,11 +526,32 @@ export default async function handler(req, res) {
           _id: { $ne: new ObjectId(decoded.userId) }
         }).limit(20).toArray();
 
-        const userResults = users.map(user => ({
-          id: user._id,
-          username: user.username,
-          fullName: user.fullName,
-          chessRating: user.chessRating || 1200
+        // Check friendship status for each user
+        const userResults = await Promise.all(users.map(async (user) => {
+          // Check if already friends
+          const friendship = await db.collection('friendships').findOne({
+            $or: [
+              { user1Id: decoded.userId, user2Id: user._id.toString() },
+              { user1Id: user._id.toString(), user2Id: decoded.userId }
+            ]
+          });
+
+          // Check if friend request already sent
+          const friendRequest = await db.collection('friend_requests').findOne({
+            $or: [
+              { senderId: decoded.userId, receiverId: user._id.toString(), status: 'pending' },
+              { senderId: user._id.toString(), receiverId: decoded.userId, status: 'pending' }
+            ]
+          });
+
+          return {
+            id: user._id.toString(),
+            username: user.username,
+            fullName: user.fullName,
+            chessRating: user.chessRating || 1200,
+            isFriend: !!friendship,
+            friendRequestSent: !!friendRequest
+          };
         }));
 
         return res.status(200).json({ success: true, users: userResults });
@@ -543,8 +564,10 @@ export default async function handler(req, res) {
           {
             $lookup: {
               from: 'users',
-              localField: 'senderId',
-              foreignField: '_id',
+              let: { senderId: { $toObjectId: '$senderId' } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$senderId'] } } }
+              ],
               as: 'sender'
             }
           },
@@ -576,16 +599,20 @@ export default async function handler(req, res) {
           {
             $lookup: {
               from: 'users',
-              localField: 'user1Id',
-              foreignField: '_id',
+              let: { user1Id: { $toObjectId: '$user1Id' } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$user1Id'] } } }
+              ],
               as: 'user1'
             }
           },
           {
             $lookup: {
               from: 'users',
-              localField: 'user2Id',
-              foreignField: '_id',
+              let: { user2Id: { $toObjectId: '$user2Id' } },
+              pipeline: [
+                { $match: { $expr: { $eq: ['$_id', '$$user2Id'] } } }
+              ],
               as: 'user2'
             }
           },
@@ -596,7 +623,7 @@ export default async function handler(req, res) {
         const friends = friendships.map(friendship => {
           const friend = friendship.user1Id === decoded.userId ? friendship.user2 : friendship.user1;
           return {
-            id: friend._id,
+            id: friend._id.toString(),
             username: friend.username,
             chessRating: friend.chessRating || 1200,
             lastSeen: friend.lastSeen
@@ -689,6 +716,164 @@ export default async function handler(req, res) {
       }
     }
 
+    // Tournaments endpoints
+    if (endpoint === 'tournaments') {
+      const decoded = verifyToken(req);
+      if (!decoded) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+
+      if (req.method === 'GET') {
+        // Get all tournaments
+        const tournaments = await db.collection('tournaments').aggregate([
+          {
+            $lookup: {
+              from: 'users',
+              let: { participantIds: '$participants' },
+              pipeline: [
+                { $match: { $expr: { $in: [{ $toString: '$_id' }, '$$participantIds'] } } }
+              ],
+              as: 'participantUsers'
+            }
+          },
+          {
+            $addFields: {
+              participants: {
+                $map: {
+                  input: '$participantUsers',
+                  as: 'user',
+                  in: {
+                    userId: { $toString: '$$user._id' },
+                    username: '$$user.username',
+                    rating: '$$user.chessRating'
+                  }
+                }
+              }
+            }
+          },
+          {
+            $project: {
+              participantUsers: 0
+            }
+          },
+          { $sort: { startTime: 1 } }
+        ]).toArray();
+
+        return res.status(200).json({ success: true, tournaments });
+      }
+
+      if (req.method === 'POST') {
+        // Create tournament (admin only)
+        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        if (!user || user.role !== 'admin') {
+          return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+
+        const {
+          name,
+          description,
+          format,
+          timeControl,
+          maxParticipants,
+          startTime,
+          endTime,
+          prizePool
+        } = req.body;
+
+        if (!name || !format || !timeControl || !maxParticipants || !startTime) {
+          return res.status(400).json({ success: false, message: 'Required fields missing' });
+        }
+
+        const tournament = {
+          id: generateGameId(),
+          name,
+          description: description || '',
+          format,
+          timeControl,
+          maxParticipants: parseInt(maxParticipants),
+          startTime: new Date(startTime),
+          endTime: endTime ? new Date(endTime) : null,
+          prizePool: parseInt(prizePool) || 0,
+          participants: [],
+          status: 'upcoming',
+          bracket: null,
+          createdBy: decoded.userId,
+          createdAt: new Date()
+        };
+
+        await db.collection('tournaments').insertOne(tournament);
+
+        return res.status(201).json({ success: true, message: 'Tournament created successfully', tournament });
+      }
+
+      if (req.method === 'POST' && action === 'join') {
+        // Join tournament
+        const { tournamentId } = req.query;
+
+        const tournament = await db.collection('tournaments').findOne({ id: tournamentId });
+        if (!tournament) {
+          return res.status(404).json({ success: false, message: 'Tournament not found' });
+        }
+
+        if (tournament.participants.includes(decoded.userId)) {
+          return res.status(400).json({ success: false, message: 'Already joined this tournament' });
+        }
+
+        if (tournament.participants.length >= tournament.maxParticipants) {
+          return res.status(400).json({ success: false, message: 'Tournament is full' });
+        }
+
+        if (new Date() > tournament.startTime) {
+          return res.status(400).json({ success: false, message: 'Tournament has already started' });
+        }
+
+        await db.collection('tournaments').updateOne(
+          { id: tournamentId },
+          { $push: { participants: decoded.userId } }
+        );
+
+        return res.status(200).json({ success: true, message: 'Successfully joined tournament' });
+      }
+
+      if (req.method === 'PUT') {
+        // Update tournament (admin only)
+        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        if (!user || user.role !== 'admin') {
+          return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+
+        const { tournamentId } = req.query;
+        const updates = req.body;
+
+        // Remove fields that shouldn't be updated directly
+        delete updates._id;
+        delete updates.id;
+        delete updates.createdAt;
+        delete updates.createdBy;
+
+        await db.collection('tournaments').updateOne(
+          { id: tournamentId },
+          { $set: { ...updates, updatedAt: new Date() } }
+        );
+
+        return res.status(200).json({ success: true, message: 'Tournament updated successfully' });
+      }
+
+      if (req.method === 'DELETE') {
+        // Delete tournament (admin only)
+        const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        if (!user || user.role !== 'admin') {
+          return res.status(403).json({ success: false, message: 'Admin access required' });
+        }
+
+        const { tournamentId } = req.query;
+
+        await db.collection('tournaments').deleteOne({ id: tournamentId });
+
+        return res.status(200).json({ success: true, message: 'Tournament deleted successfully' });
+      }
+    }
+
     // Admin endpoints
     if (endpoint === 'admin') {
       const decoded = verifyToken(req);
@@ -718,6 +903,33 @@ export default async function handler(req, res) {
         }));
 
         return res.status(200).json({ success: true, users: userList });
+      }
+
+      if (resource === 'users' && req.method === 'PUT') {
+        const { userId, updates } = req.body;
+        
+        // Remove sensitive fields
+        delete updates.password;
+        delete updates._id;
+        
+        await db.collection('users').updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { ...updates, updatedAt: new Date() } }
+        );
+
+        return res.status(200).json({ success: true, message: 'User updated successfully' });
+      }
+
+      if (resource === 'users' && req.method === 'DELETE') {
+        const { userId } = req.body;
+        
+        if (userId === decoded.userId) {
+          return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+        }
+
+        await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+
+        return res.status(200).json({ success: true, message: 'User deleted successfully' });
       }
 
       if (resource === 'games' && req.method === 'GET') {
