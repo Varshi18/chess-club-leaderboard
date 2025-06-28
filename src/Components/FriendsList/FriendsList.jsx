@@ -4,7 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/',
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -45,7 +45,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get('?endpoint=friends');
+      const response = await api.get('/?endpoint=friends');
       if (response.data.success) {
         setFriends(response.data.friends);
       } else {
@@ -63,7 +63,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const fetchFriendRequests = async () => {
     try {
-      const response = await api.get('?endpoint=friends&type=requests');
+      const response = await api.get('/?endpoint=friends&type=requests');
       if (response.data.success) {
         setFriendRequests(response.data.requests);
       }
@@ -74,7 +74,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const fetchReceivedChallenges = async () => {
     try {
-      const response = await api.get('?endpoint=challenges&action=received');
+      const response = await api.get('/?endpoint=challenges&action=received');
       if (response.data.success) {
         setReceivedChallenges(response.data.challenges);
       }
@@ -92,7 +92,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`?endpoint=friends&q=${encodeURIComponent(query)}`);
+      const response = await api.get(`/?endpoint=friends&q=${encodeURIComponent(query)}`);
       if (response.data.success) {
         setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
@@ -110,7 +110,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const sendFriendRequest = async (userId) => {
     try {
-      const response = await api.post('?endpoint=friends', { userId });
+      const response = await api.post('/?endpoint=friends', { userId });
       if (response.data.success) {
         setSearchResults((prev) =>
           prev.map((user) =>
@@ -128,7 +128,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('?endpoint=friends', { requestId, action: 'accept' });
+      const response = await api.patch('/?endpoint=friends', { requestId, action: 'accept' });
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
@@ -143,7 +143,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const rejectFriendRequest = async (requestId) => {
     try {
-      const response = await api.patch('?endpoint=friends', { requestId, action: 'reject' });
+      const response = await api.patch('/?endpoint=friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
       } else {
@@ -157,7 +157,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const sendChallenge = async (friendId, timeControl) => {
     try {
-      const response = await api.post('?endpoint=challenges&action=send', {
+      const response = await api.post('/?endpoint=challenges&action=send', {
         challengedUserId: friendId,
         timeControl: timeControl
       });
@@ -178,7 +178,7 @@ const FriendsList = ({ onChallengePlayer }) => {
 
   const respondToChallenge = async (challengeId, response) => {
     try {
-      const apiResponse = await api.patch('?endpoint=challenges&action=respond', {
+      const apiResponse = await api.patch('/?endpoint=challenges&action=respond', {
         challengeId,
         response
       });
