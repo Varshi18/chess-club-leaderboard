@@ -12,23 +12,25 @@ const GameTimer = ({
 }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
-  const lastUpdateRef = useRef(Date.now());
-  const startTimeRef = useRef(Date.now());
+  const lastServerTimeRef = useRef(null);
 
-  // Update time when props change
+  // FIXED: Simplified timer logic - only update when server time changes significantly
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
-      // For server-controlled timers, use the exact server time
       const newTime = Math.max(0, Math.floor(currentTime));
-      setTimeLeft(newTime);
-      startTimeRef.current = Date.now();
+      
+      // Only update if there's a significant difference (more than 2 seconds) to prevent jumping
+      if (lastServerTimeRef.current === null || Math.abs(timeLeft - newTime) > 2) {
+        setTimeLeft(newTime);
+        lastServerTimeRef.current = newTime;
+      }
     } else {
-      // For practice mode, use initial time
       setTimeLeft(initialTime);
-      startTimeRef.current = Date.now();
+      lastServerTimeRef.current = null;
     }
-  }, [initialTime, serverControlled, currentTime]);
+  }, [currentTime, serverControlled, initialTime]);
 
+  // FIXED: Only run local countdown for practice mode
   useEffect(() => {
     // Clear any existing interval
     if (intervalRef.current) {
@@ -36,25 +38,17 @@ const GameTimer = ({
       intervalRef.current = null;
     }
     
-    // FIXED: Only run local timer for practice mode OR when server-controlled timer is active
-    if (isActive && !isPaused && timeLeft > 0) {
-      lastUpdateRef.current = Date.now();
-      
+    // Only run local timer for practice mode (not server-controlled)
+    if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
       intervalRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
-        
-        if (elapsed >= 1) {
-          setTimeLeft(prevTime => {
-            const newTime = Math.max(0, prevTime - elapsed);
-            if (newTime <= 0 && onTimeUp) {
-              onTimeUp(player);
-            }
-            return newTime;
-          });
-          lastUpdateRef.current = now;
-        }
-      }, 100); // Check every 100ms for smooth updates
+        setTimeLeft(prevTime => {
+          const newTime = Math.max(0, prevTime - 1);
+          if (newTime <= 0 && onTimeUp) {
+            onTimeUp(player);
+          }
+          return newTime;
+        });
+      }, 1000);
     }
     
     return () => {
@@ -63,7 +57,7 @@ const GameTimer = ({
         intervalRef.current = null;
       }
     };
-  }, [isActive, isPaused, timeLeft, onTimeUp, player, serverControlled]);
+  }, [isActive, isPaused, serverControlled, onTimeUp, player]);
 
   // Cleanup on unmount
   useEffect(() => {
