@@ -26,11 +26,11 @@ const MultiplayerChess = ({
   const [gameResult, setGameResult] = useState(null);
   const [showGameOver, setShowGameOver] = useState(false);
   const [timeControl, setTimeControl] = useState({ white: initialTimeControl, black: initialTimeControl });
-  const [activePlayer, setActivePlayer] = useState('white'); // FIXED: Always start with white
+  const [activePlayer, setActivePlayer] = useState('white'); // Always start with white
   const [isPaused, setIsPaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
   const [syncStatus, setSyncStatus] = useState('disconnected');
-  const [isMyTurn, setIsMyTurn] = useState(true);
+  const [isMyTurn, setIsMyTurn] = useState(gameMode === 'practice' ? true : false);
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
   const [showDrawOffer, setShowDrawOffer] = useState(false);
@@ -41,7 +41,6 @@ const MultiplayerChess = ({
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
-  const timerStartTimeRef = useRef(Date.now());
 
   // Set up API
   const api = axios.create({
@@ -91,21 +90,21 @@ const MultiplayerChess = ({
         
         console.log('🎯 Game session loaded:', session);
         
-        // FIXED: Determine player color based on server data
-        const isWhite = session.whitePlayerId === user.id;
-        const assignedColor = isWhite ? 'white' : 'black';
+        // FIXED: Determine player color correctly
+        const isWhitePlayer = session.whitePlayerId === user.id || session.whitePlayerId === user._id;
+        const assignedColor = isWhitePlayer ? 'white' : 'black';
         setPlayerColor(assignedColor);
         
-        console.log('🎨 Player colors:', {
-          userId: user.id,
+        console.log('🎨 Player color assignment:', {
+          userId: user.id || user._id,
           whitePlayerId: session.whitePlayerId,
           blackPlayerId: session.blackPlayerId,
           assignedColor,
-          isWhite
+          isWhitePlayer
         });
         
         // Load game state from server
-        loadServerGameState(session);
+        loadServerGameState(session, assignedColor);
         
         setGameStarted(true);
         setSyncStatus('connected');
@@ -123,7 +122,7 @@ const MultiplayerChess = ({
     }
   };
 
-  const loadServerGameState = (session) => {
+  const loadServerGameState = (session, playerColorOverride = null) => {
     try {
       const newGame = new Chess();
       
@@ -154,39 +153,25 @@ const MultiplayerChess = ({
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
       
-      // FIXED: Set turn state from server - always start with white
+      // FIXED: Set turn state from server - chess always starts with white
       const serverTurn = session.turn || 'w'; // Default to white if no turn specified
-      setActivePlayer(serverTurn === 'w' ? 'white' : 'black');
+      const currentPlayer = serverTurn === 'w' ? 'white' : 'black';
+      setActivePlayer(currentPlayer);
       setGameStateVersion(session.version || 0);
       
-      // FIXED: Set timer values with proper time calculation
-      const now = Date.now();
-      const lastMoveTime = session.lastMoveAt ? new Date(session.lastMoveAt).getTime() : now;
-      const elapsedSeconds = Math.floor((now - lastMoveTime) / 1000);
-      
-      let whiteTime = session.whiteTimeLeft || session.timeControl || initialTimeControl;
-      let blackTime = session.blackTimeLeft || session.timeControl || initialTimeControl;
-      
-      // Subtract elapsed time from the current player's clock
-      if (session.status === 'active' && session.lastMoveAt) {
-        if (serverTurn === 'w') {
-          whiteTime = Math.max(0, whiteTime - elapsedSeconds);
-        } else {
-          blackTime = Math.max(0, blackTime - elapsedSeconds);
-        }
-      }
+      // FIXED: Set timer values
+      const whiteTime = session.whiteTimeLeft || session.timeControl || initialTimeControl;
+      const blackTime = session.blackTimeLeft || session.timeControl || initialTimeControl;
       
       setTimeControl({
         white: whiteTime,
         black: blackTime
       });
       
-      // Update timer start time for accurate countdown
-      timerStartTimeRef.current = now;
-      
-      // FIXED: Update turn indicator based on player color and server state
-      const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
-                          (serverTurn === 'b' && playerColor === 'black');
+      // FIXED: Determine if it's player's turn correctly
+      const currentPlayerColor = playerColorOverride || playerColor;
+      const isPlayerTurn = (serverTurn === 'w' && currentPlayerColor === 'white') || 
+                          (serverTurn === 'b' && currentPlayerColor === 'black');
       setIsMyTurn(isPlayerTurn);
       
       updateCapturedPieces(newGame.history({ verbose: true }));
@@ -207,6 +192,8 @@ const MultiplayerChess = ({
       console.log('✅ Game state loaded:', {
         moves: session.moves?.length || 0,
         turn: serverTurn,
+        currentPlayer,
+        playerColor: currentPlayerColor,
         isMyTurn: isPlayerTurn,
         version: session.version,
         whiteTime,
@@ -434,7 +421,8 @@ const MultiplayerChess = ({
         console.log('⏸️ Not your turn:', { 
           currentTurn: game.turn(), 
           playerColor, 
-          isMyTurn 
+          isMyTurn,
+          activePlayer
         });
         return false;
       }
@@ -521,13 +509,13 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
+  }, [game, gameMode, playerColor, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId, activePlayer]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
     if (gameMode === 'multiplayer') {
       if (!gameStarted || !isMyTurn) {
-        console.log('⏸️ Not your turn or game not started:', { gameStarted, isMyTurn });
+        console.log('⏸️ Not your turn or game not started:', { gameStarted, isMyTurn, playerColor, activePlayer });
         return;
       }
     }
@@ -558,7 +546,7 @@ const MultiplayerChess = ({
         setPossibleMoves(moves.map(move => move.to));
       }
     }
-  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn]);
+  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, playerColor, activePlayer]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
     return makeMove(sourceSquare, targetSquare, piece);
@@ -575,10 +563,10 @@ const MultiplayerChess = ({
     setGameResult(null);
     setShowGameOver(false);
     setTimeControl({ white: initialTimeControl, black: initialTimeControl });
-    setActivePlayer('white'); // FIXED: Always start with white
+    setActivePlayer('white'); // Always start with white
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
-    setIsMyTurn(true);
+    setIsMyTurn(gameMode === 'practice' ? true : playerColor === 'white');
     setGameStateVersion(0);
     isInitializedRef.current = false;
     
@@ -592,7 +580,7 @@ const MultiplayerChess = ({
     if (onPgnUpdate) {
       onPgnUpdate('');
     }
-  }, [updateGameStatus, gameMode, onPgnUpdate, initialTimeControl]);
+  }, [updateGameStatus, gameMode, onPgnUpdate, initialTimeControl, playerColor]);
 
   const handleTimeUp = useCallback((player) => {
     const winner = player === 'white' ? 'Black' : 'White';
@@ -714,28 +702,28 @@ const MultiplayerChess = ({
         {gameMode !== 'practice' && gameStarted && (
           <div className="lg:col-span-2 order-1 lg:order-1">
             <div className="flex lg:flex-col gap-3 lg:gap-4">
-              {/* FIXED: Black timer on top (opponent's perspective) */}
+              {/* FIXED: Show opponent's timer on top */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl.black}
-                  isActive={activePlayer === 'black' && !isPaused && gameStarted}
+                  initialTime={timeControl[playerColor === 'white' ? 'black' : 'white']}
+                  isActive={activePlayer !== playerColor && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
-                  player="black"
+                  player={playerColor === 'white' ? 'black' : 'white'}
                   isPaused={isPaused}
                   serverControlled={gameMode === 'multiplayer'}
-                  currentTime={timeControl.black}
+                  currentTime={timeControl[playerColor === 'white' ? 'black' : 'white']}
                 />
               </div>
-              {/* FIXED: White timer on bottom (player's perspective) */}
+              {/* FIXED: Show player's timer on bottom */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl.white}
-                  isActive={activePlayer === 'white' && !isPaused && gameStarted}
+                  initialTime={timeControl[playerColor]}
+                  isActive={activePlayer === playerColor && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
-                  player="white"
+                  player={playerColor}
                   isPaused={isPaused}
                   serverControlled={gameMode === 'multiplayer'}
-                  currentTime={timeControl.white}
+                  currentTime={timeControl[playerColor]}
                 />
               </div>
             </div>
