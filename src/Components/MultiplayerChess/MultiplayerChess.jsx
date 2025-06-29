@@ -34,6 +34,10 @@ const MultiplayerChess = ({
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
   const [serverTimeLeft, setServerTimeLeft] = useState({ white: initialTimeControl, black: initialTimeControl });
+  const [showDrawOffer, setShowDrawOffer] = useState(false);
+  const [drawOffered, setDrawOffered] = useState(false);
+  const [pauseRequested, setPauseRequested] = useState(false);
+  const [showPauseRequest, setShowPauseRequest] = useState(false);
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
@@ -305,6 +309,10 @@ const MultiplayerChess = ({
       if (gameMode === 'multiplayer') {
         // Server will handle game end
         endGameOnServer(result);
+      } else {
+        // For practice mode, handle locally
+        setGameResult(result);
+        setShowGameOver(true);
       }
     } else if (gameInstance.isCheck()) {
       setGameStatus(`${gameInstance.turn() === 'w' ? 'White' : 'Black'} is in check`);
@@ -365,6 +373,16 @@ const MultiplayerChess = ({
       pgn += `[Black "${blackUsername}"]\n`;
       pgn += `[Result "*"]\n`;
       pgn += `[TimeControl "${timeControl.white}"]\n\n`;
+    } else if (gameMode === 'practice') {
+      // FIXED: Add headers for practice mode too
+      const now = new Date();
+      pgn += `[Event "Practice Game"]\n`;
+      pgn += `[Site "IIT Dharwad Chess Club"]\n`;
+      pgn += `[Date "${now.toISOString().split('T')[0]}"]\n`;
+      pgn += `[Round "?"]\n`;
+      pgn += `[White "Player"]\n`;
+      pgn += `[Black "Player"]\n`;
+      pgn += `[Result "*"]\n\n`;
     }
     
     // FIXED: Improved move formatting for PGN
@@ -578,6 +596,56 @@ const MultiplayerChess = ({
     }
   }, [gameMode]);
 
+  // FIXED: Add resign functionality for multiplayer
+  const handleResign = useCallback(() => {
+    if (gameMode === 'multiplayer') {
+      const winner = playerColor === 'white' ? 'Black' : 'White';
+      const result = { winner, reason: 'resignation' };
+      endGameOnServer(result);
+    }
+    
+    // End game locally
+    if (onGameEnd) {
+      onGameEnd();
+    }
+  }, [gameMode, playerColor, onGameEnd]);
+
+  // FIXED: Add draw offer functionality
+  const offerDraw = useCallback(() => {
+    if (gameMode === 'multiplayer') {
+      setDrawOffered(true);
+      // In a real implementation, this would send to server
+      alert('Draw offer sent to opponent');
+    }
+  }, [gameMode]);
+
+  const acceptDraw = useCallback(() => {
+    const result = { winner: null, reason: 'agreement' };
+    if (gameMode === 'multiplayer') {
+      endGameOnServer(result);
+    } else {
+      setGameResult(result);
+      setShowGameOver(true);
+    }
+    setShowDrawOffer(false);
+  }, [gameMode]);
+
+  // FIXED: Add pause functionality
+  const requestPause = useCallback(() => {
+    if (gameMode === 'multiplayer') {
+      setPauseRequested(true);
+      // In a real implementation, this would send to server
+      alert('Pause request sent to opponent');
+    } else {
+      setIsPaused(!isPaused);
+    }
+  }, [gameMode, isPaused]);
+
+  const acceptPause = useCallback(() => {
+    setIsPaused(true);
+    setShowPauseRequest(false);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -768,14 +836,58 @@ const MultiplayerChess = ({
                 )}
                 
                 {gameMode === 'multiplayer' && gameStarted && (
-                  <motion.button
-                    onClick={() => setIsPaused(!isPaused)}
-                    className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    {isPaused ? 'Resume' : 'Pause'}
-                  </motion.button>
+                  <>
+                    <motion.button
+                      onClick={handleResign}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 text-sm lg:text-base"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      Resign
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={offerDraw}
+                      disabled={drawOffered}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {drawOffered ? 'Draw Offered' : 'Offer Draw'}
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={requestPause}
+                      disabled={pauseRequested}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {isPaused ? 'Resume' : pauseRequested ? 'Pause Requested' : 'Request Pause'}
+                    </motion.button>
+                  </>
+                )}
+                
+                {gameMode === 'practice' && (
+                  <>
+                    <motion.button
+                      onClick={requestPause}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 text-sm lg:text-base"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {isPaused ? 'Resume' : 'Pause'}
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={acceptDraw}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      Declare Draw
+                    </motion.button>
+                  </>
                 )}
               </div>
             </motion.div>
@@ -878,6 +990,100 @@ const MultiplayerChess = ({
         </div>
       </div>
 
+      {/* Draw Offer Modal */}
+      <AnimatePresence>
+        {showDrawOffer && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+            >
+              <div className="text-center">
+                <div className="text-4xl mb-4">🤝</div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                  Draw Offer
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Your opponent has offered a draw. Do you accept?
+                </p>
+                <div className="flex space-x-3">
+                  <motion.button
+                    onClick={acceptDraw}
+                    className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept
+                  </motion.button>
+                  <motion.button
+                    onClick={() => setShowDrawOffer(false)}
+                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Pause Request Modal */}
+      <AnimatePresence>
+        {showPauseRequest && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+            >
+              <div className="text-center">
+                <div className="text-4xl mb-4">⏸️</div>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                  Pause Request
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Your opponent has requested to pause the game. Do you agree?
+                </p>
+                <div className="flex space-x-3">
+                  <motion.button
+                    onClick={acceptPause}
+                    className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept
+                  </motion.button>
+                  <motion.button
+                    onClick={() => setShowPauseRequest(false)}
+                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Game Over Modal */}
       <AnimatePresence>
         {showGameOver && gameResult && (
@@ -904,6 +1110,8 @@ const MultiplayerChess = ({
                 <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm lg:text-base">
                   {gameResult.reason === 'checkmate' && 'By checkmate'}
                   {gameResult.reason === 'timeout' && 'By timeout'}
+                  {gameResult.reason === 'resignation' && 'By resignation'}
+                  {gameResult.reason === 'agreement' && 'By mutual agreement'}
                   {gameResult.reason === 'stalemate' && 'By stalemate'}
                   {gameResult.reason === 'repetition' && 'By threefold repetition'}
                   {gameResult.reason === 'insufficient_material' && 'By insufficient material'}

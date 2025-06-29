@@ -17,44 +17,71 @@ async function connectToDatabase() {
   return db;
 }
 
-// Middleware to verify JWT token
-const verifyToken = (req) => {
+// Helper function to verify JWT token
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
+}
+
+// Helper function to get user from token
+async function getUserFromToken(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
   
   const token = authHeader.substring(7);
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
+  const decoded = verifyToken(token);
+  if (!decoded) {
     return null;
   }
-};
+  
+  const db = await connectToDatabase();
+  const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+  return user;
+}
 
-// Helper function to generate game session ID
-const generateGameId = () => {
-  return `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-};
-
-// Helper function to safely convert to ObjectId
-const toObjectId = (id) => {
-  try {
-    if (ObjectId.isValid(id)) {
-      return new ObjectId(id);
+// Helper function to update user stats after game completion
+async function updateUserStats(db, userId, gameResult, isWin, isDraw) {
+  const updateData = {
+    $inc: {
+      gamesPlayed: 1,
+      ...(isWin && { gamesWon: 1 }),
+      ...(isDraw && { gamesDrawn: 1 })
+    },
+    $set: {
+      lastGameAt: new Date()
     }
-    return null;
-  } catch (error) {
-    return null;
-  }
-};
+  };
+  
+  await db.collection('users').updateOne(
+    { _id: new ObjectId(userId) },
+    updateData
+  );
+}
+
+// Helper function to calculate rating changes (simplified ELO)
+function calculateRatingChange(playerRating, opponentRating, result) {
+  const K = 32; // K-factor
+  const expectedScore = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+  
+  let actualScore;
+  if (result === 'win') actualScore = 1;
+  else if (result === 'draw') actualScore = 0.5;
+  else actualScore = 0;
+  
+  return Math.round(K * (actualScore - expectedScore));
+}
 
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
+  
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -65,1523 +92,861 @@ export default async function handler(req, res) {
 
     // Authentication endpoints
     if (endpoint === 'auth') {
+      if (action === 'login' && req.method === 'POST') {
+        const { email, password } = req.body;
+        
+        const user = await db.collection('users').findOne({ email });
+        if (!user) {
+          return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+        
+        const isValidPassword = await bcrypt.compare(password, user.password);
+        if (!isValidPassword) {
+          return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+        
+        const token = jwt.sign({ userId: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
+        
+        // Update last login
+        await db.collection('users').updateOne(
+          { _id: user._id },
+          { $set: { lastSeen: new Date() } }
+        );
+        
+        const { password: _, ...userWithoutPassword } = user;
+        return res.json({ 
+          success: true, 
+          token, 
+          user: userWithoutPassword,
+          message: 'Login successful' 
+        });
+      }
+      
       if (action === 'register' && req.method === 'POST') {
         const { username, email, password, fullName } = req.body;
-
-        // Validation
-        if (!username || !email || !password || !fullName) {
-          return res.status(400).json({ success: false, message: 'All fields are required' });
-        }
-
+        
         // Check if user exists
         const existingUser = await db.collection('users').findOne({
           $or: [{ email }, { username }]
         });
-
+        
         if (existingUser) {
           return res.status(400).json({ 
             success: false, 
             message: existingUser.email === email ? 'Email already exists' : 'Username already exists'
           });
         }
-
-        // Hash password
+        
         const hashedPassword = await bcrypt.hash(password, 12);
-
-        // Create user
+        
         const newUser = {
           username,
           email,
           password: hashedPassword,
           fullName,
+          role: 'user',
           chessRating: 1200,
           gamesPlayed: 0,
           gamesWon: 0,
-          role: 'user',
+          gamesDrawn: 0,
           isActive: true,
           createdAt: new Date(),
           lastSeen: new Date()
         };
-
-        const result = await db.collection('users').insertOne(newUser);
         
-        // Generate token
-        const token = jwt.sign(
-          { userId: result.insertedId, username },
-          JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-
-        const userResponse = {
-          id: result.insertedId,
-          username,
-          email,
-          fullName,
-          chessRating: 1200,
-          role: 'user'
-        };
-
-        return res.status(201).json({
-          success: true,
-          message: 'User registered successfully',
-          token,
-          user: userResponse
+        const result = await db.collection('users').insertOne(newUser);
+        const token = jwt.sign({ userId: result.insertedId, username }, JWT_SECRET, { expiresIn: '7d' });
+        
+        const { password: _, ...userWithoutPassword } = newUser;
+        return res.json({ 
+          success: true, 
+          token, 
+          user: { ...userWithoutPassword, _id: result.insertedId },
+          message: 'Registration successful' 
         });
       }
-
-      if (action === 'login' && req.method === 'POST') {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
-          return res.status(400).json({ success: false, message: 'Email and password are required' });
-        }
-
-        // Find user
-        const user = await db.collection('users').findOne({ email });
-        if (!user) {
-          return res.status(401).json({ success: false, message: 'Invalid credentials' });
-        }
-
-        // Check password
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        if (!isValidPassword) {
-          return res.status(401).json({ success: false, message: 'Invalid credentials' });
-        }
-
-        // Update last seen
-        await db.collection('users').updateOne(
-          { _id: user._id },
-          { $set: { lastSeen: new Date() } }
-        );
-
-        // Generate token
-        const token = jwt.sign(
-          { userId: user._id, username: user.username },
-          JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-
-        const userResponse = {
-          id: user._id,
-          username: user.username,
-          email: user.email,
-          fullName: user.fullName,
-          chessRating: user.chessRating || 1200,
-          role: user.role || 'user'
-        };
-
-        return res.status(200).json({
-          success: true,
-          message: 'Login successful',
-          token,
-          user: userResponse
-        });
-      }
-
+      
       if (action === 'me' && req.method === 'GET') {
-        const decoded = verifyToken(req);
-        if (!decoded) {
+        const user = await getUserFromToken(req);
+        if (!user) {
           return res.status(401).json({ success: false, message: 'Invalid token' });
         }
-
-        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
-        if (!user) {
-          return res.status(404).json({ success: false, message: 'User not found' });
-        }
-
-        const userResponse = {
-          id: user._id,
-          username: user.username,
-          email: user.email,
-          fullName: user.fullName,
-          chessRating: user.chessRating || 1200,
-          role: user.role || 'user'
-        };
-
-        return res.status(200).json({ success: true, user: userResponse });
-      }
-    }
-
-    // Game Sessions endpoints for server-side multiplayer
-    if (endpoint === 'game-sessions') {
-      const decoded = verifyToken(req);
-      if (!decoded) {
-        return res.status(401).json({ success: false, message: 'Authentication required' });
-      }
-
-      if (req.method === 'GET' && req.query.gameId && !action) {
-        const { gameId } = req.query;
         
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Populate player data
-          const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.whitePlayerId) });
-          const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.blackPlayerId) });
-
-          if (!whitePlayer || !blackPlayer) {
-            return res.status(404).json({ success: false, message: 'Player data not found' });
-          }
-
-          const sessionWithPlayers = {
-            ...gameSession,
-            whitePlayer: {
-              id: whitePlayer._id,
-              username: whitePlayer.username,
-              chessRating: whitePlayer.chessRating || 1200
-            },
-            blackPlayer: {
-              id: blackPlayer._id,
-              username: blackPlayer.username,
-              chessRating: blackPlayer.chessRating || 1200
-            }
-          };
-
-          return res.status(200).json({ success: true, gameSession: sessionWithPlayers });
-        } catch (error) {
-          console.error('Error fetching game session:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch game session' });
-        }
-      }
-
-      if (req.method === 'GET' && action === 'sync') {
-        const { gameId, lastVersion } = req.query;
-        
-        try {
-          if (!gameId) {
-            return res.status(400).json({ success: false, message: 'Game ID is required' });
-          }
-
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game
-          const userIdStr = decoded.userId.toString();
-          const whitePlayerIdStr = gameSession.whitePlayerId.toString();
-          const blackPlayerIdStr = gameSession.blackPlayerId.toString();
-          
-          if (userIdStr !== whitePlayerIdStr && userIdStr !== blackPlayerIdStr) {
-            return res.status(403).json({ success: false, message: 'Not authorized to access this game' });
-          }
-
-          const currentVersion = gameSession.version || 0;
-          const clientVersion = parseInt(lastVersion || 0);
-          const hasUpdates = currentVersion > clientVersion;
-          
-          if (hasUpdates) {
-            // Populate player data for sync
-            const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.whitePlayerId) });
-            const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.blackPlayerId) });
-
-            const sessionWithPlayers = {
-              ...gameSession,
-              whitePlayer: {
-                id: whitePlayer._id,
-                username: whitePlayer.username,
-                chessRating: whitePlayer.chessRating || 1200
-              },
-              blackPlayer: {
-                id: blackPlayer._id,
-                username: blackPlayer.username,
-                chessRating: blackPlayer.chessRating || 1200
-              }
-            };
-
-            return res.status(200).json({ 
-              success: true, 
-              hasUpdates: true, 
-              gameState: sessionWithPlayers 
-            });
-          }
-
-          return res.status(200).json({ success: true, hasUpdates: false });
-        } catch (error) {
-          console.error('Error syncing game session:', error);
-          return res.status(500).json({ success: false, message: 'Failed to sync game session' });
-        }
-      }
-
-      if (req.method === 'PATCH' && action === 'move') {
-        const { gameId, move, fen } = req.body;
-        
-        try {
-          if (!gameId || !move) {
-            return res.status(400).json({ success: false, message: 'Game ID and move are required' });
-          }
-          
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Check if game is paused or ended
-          if (gameSession.status === 'paused') {
-            return res.status(400).json({ success: false, message: 'Game is paused' });
-          }
-
-          if (gameSession.status === 'completed') {
-            return res.status(400).json({ success: false, message: 'Game has ended' });
-          }
-
-          // Verify it's the player's turn
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          const currentTurn = gameSession.turn || 'w';
-          const playerCanMove = (currentTurn === 'w' && isWhitePlayer) || (currentTurn === 'b' && isBlackPlayer);
-          
-          if (!playerCanMove) {
-            return res.status(400).json({ success: false, message: `Not your turn. Current turn: ${currentTurn === 'w' ? 'White' : 'Black'}` });
-          }
-
-          // Calculate time spent on this move (simple estimation)
-          const now = new Date();
-          const lastMoveTime = gameSession.lastMoveAt || gameSession.createdAt;
-          const timeSpent = Math.min(30, Math.floor((now - new Date(lastMoveTime)) / 1000)); // Max 30 seconds per move
-
-          // Update game state
-          const newMoves = [...(gameSession.moves || []), move];
-          const newTurn = currentTurn === 'w' ? 'b' : 'w'; // CRITICAL FIX: Switch turns properly
-          const newVersion = (gameSession.version || 0) + 1;
-
-          // Update timers (subtract time from current player)
-          const updatedTimeLeft = {
-            whiteTimeLeft: currentTurn === 'w' 
-              ? Math.max(0, (gameSession.whiteTimeLeft || gameSession.timeControl) - timeSpent)
-              : (gameSession.whiteTimeLeft || gameSession.timeControl),
-            blackTimeLeft: currentTurn === 'b' 
-              ? Math.max(0, (gameSession.blackTimeLeft || gameSession.timeControl) - timeSpent)
-              : (gameSession.blackTimeLeft || gameSession.timeControl)
-          };
-
-          // CRITICAL FIX: Update the game session with proper turn switching
-          const updateResult = await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                moves: newMoves,
-                fen,
-                turn: newTurn, // This switches the turn properly
-                version: newVersion,
-                lastMoveBy: decoded.userId,
-                lastMoveAt: now,
-                ...updatedTimeLeft
-              }
-            }
-          );
-
-          if (updateResult.modifiedCount === 0) {
-            return res.status(500).json({ success: false, message: 'Failed to update game state' });
-          }
-
-          console.log('✅ Move processed on server:', {
-            move,
-            oldTurn: currentTurn,
-            newTurn,
-            version: newVersion,
-            player: isWhitePlayer ? 'white' : 'black',
-            timeLeft: updatedTimeLeft
-          });
-
-          return res.status(200).json({ 
-            success: true, 
-            version: newVersion,
-            turn: newTurn,
-            timeLeft: updatedTimeLeft,
-            message: 'Move recorded successfully' 
-          });
-        } catch (error) {
-          console.error('Error recording move:', error);
-          return res.status(500).json({ success: false, message: 'Failed to record move' });
-        }
-      }
-
-      // NEW: Resign endpoint
-      if (req.method === 'PATCH' && action === 'resign') {
-        const { gameId } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          // Determine winner (opponent of the player who resigned)
-          const result = isWhitePlayer ? '0-1' : '1-0';
-          const winner = isWhitePlayer ? 'Black' : 'White';
-
-          await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                status: 'completed',
-                result,
-                reason: 'resignation',
-                resignedBy: decoded.userId,
-                endedAt: new Date(),
-                version: (gameSession.version || 0) + 1
-              }
-            }
-          );
-
-          console.log('🏳️ Player resigned:', {
-            gameId,
-            resignedBy: decoded.userId,
-            winner,
-            result
-          });
-
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Game ended by resignation',
-            result,
-            winner,
-            reason: 'resignation'
-          });
-        } catch (error) {
-          console.error('Error processing resignation:', error);
-          return res.status(500).json({ success: false, message: 'Failed to process resignation' });
-        }
-      }
-
-      // NEW: Draw offer endpoint
-      if (req.method === 'PATCH' && action === 'offer-draw') {
-        const { gameId } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          // Check if there's already a pending draw offer
-          if (gameSession.drawOffer && gameSession.drawOffer.status === 'pending') {
-            return res.status(400).json({ success: false, message: 'Draw offer already pending' });
-          }
-
-          await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                drawOffer: {
-                  offeredBy: decoded.userId,
-                  status: 'pending',
-                  offeredAt: new Date()
-                },
-                version: (gameSession.version || 0) + 1
-              }
-            }
-          );
-
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Draw offer sent'
-          });
-        } catch (error) {
-          console.error('Error offering draw:', error);
-          return res.status(500).json({ success: false, message: 'Failed to offer draw' });
-        }
-      }
-
-      // NEW: Respond to draw offer endpoint
-      if (req.method === 'PATCH' && action === 'respond-draw') {
-        const { gameId, response } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game and not the one who offered the draw
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          if (!gameSession.drawOffer || gameSession.drawOffer.status !== 'pending') {
-            return res.status(400).json({ success: false, message: 'No pending draw offer' });
-          }
-
-          if (gameSession.drawOffer.offeredBy === userIdStr) {
-            return res.status(400).json({ success: false, message: 'Cannot respond to your own draw offer' });
-          }
-
-          if (response === 'accept') {
-            // Accept draw
-            await db.collection('game_sessions').updateOne(
-              { gameId },
-              {
-                $set: {
-                  status: 'completed',
-                  result: '1/2-1/2',
-                  reason: 'draw_agreement',
-                  endedAt: new Date(),
-                  drawOffer: {
-                    ...gameSession.drawOffer,
-                    status: 'accepted',
-                    respondedAt: new Date()
-                  },
-                  version: (gameSession.version || 0) + 1
-                }
-              }
-            );
-
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Draw accepted',
-              result: '1/2-1/2',
-              reason: 'draw_agreement'
-            });
-          } else {
-            // Decline draw
-            await db.collection('game_sessions').updateOne(
-              { gameId },
-              {
-                $set: {
-                  drawOffer: {
-                    ...gameSession.drawOffer,
-                    status: 'declined',
-                    respondedAt: new Date()
-                  },
-                  version: (gameSession.version || 0) + 1
-                }
-              }
-            );
-
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Draw declined'
-            });
-          }
-        } catch (error) {
-          console.error('Error responding to draw:', error);
-          return res.status(500).json({ success: false, message: 'Failed to respond to draw' });
-        }
-      }
-
-      // NEW: Pause game endpoint
-      if (req.method === 'PATCH' && action === 'pause') {
-        const { gameId } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          // Check if there's already a pending pause request
-          if (gameSession.pauseRequest && gameSession.pauseRequest.status === 'pending') {
-            return res.status(400).json({ success: false, message: 'Pause request already pending' });
-          }
-
-          await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                pauseRequest: {
-                  requestedBy: decoded.userId,
-                  status: 'pending',
-                  requestedAt: new Date()
-                },
-                version: (gameSession.version || 0) + 1
-              }
-            }
-          );
-
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Pause request sent'
-          });
-        } catch (error) {
-          console.error('Error requesting pause:', error);
-          return res.status(500).json({ success: false, message: 'Failed to request pause' });
-        }
-      }
-
-      // NEW: Respond to pause request endpoint
-      if (req.method === 'PATCH' && action === 'respond-pause') {
-        const { gameId, response } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          // Verify user is part of this game and not the one who requested the pause
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          if (!gameSession.pauseRequest || gameSession.pauseRequest.status !== 'pending') {
-            return res.status(400).json({ success: false, message: 'No pending pause request' });
-          }
-
-          if (gameSession.pauseRequest.requestedBy === userIdStr) {
-            return res.status(400).json({ success: false, message: 'Cannot respond to your own pause request' });
-          }
-
-          if (response === 'accept') {
-            // Accept pause
-            await db.collection('game_sessions').updateOne(
-              { gameId },
-              {
-                $set: {
-                  status: 'paused',
-                  pausedAt: new Date(),
-                  pauseRequest: {
-                    ...gameSession.pauseRequest,
-                    status: 'accepted',
-                    respondedAt: new Date()
-                  },
-                  version: (gameSession.version || 0) + 1
-                }
-              }
-            );
-
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Game paused'
-            });
-          } else {
-            // Decline pause
-            await db.collection('game_sessions').updateOne(
-              { gameId },
-              {
-                $set: {
-                  pauseRequest: {
-                    ...gameSession.pauseRequest,
-                    status: 'declined',
-                    respondedAt: new Date()
-                  },
-                  version: (gameSession.version || 0) + 1
-                }
-              }
-            );
-
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Pause request declined'
-            });
-          }
-        } catch (error) {
-          console.error('Error responding to pause:', error);
-          return res.status(500).json({ success: false, message: 'Failed to respond to pause' });
-        }
-      }
-
-      // NEW: Resume game endpoint
-      if (req.method === 'PATCH' && action === 'resume') {
-        const { gameId } = req.body;
-        
-        try {
-          const gameSession = await db.collection('game_sessions').findOne({ gameId });
-          if (!gameSession) {
-            return res.status(404).json({ success: false, message: 'Game session not found' });
-          }
-
-          if (gameSession.status !== 'paused') {
-            return res.status(400).json({ success: false, message: 'Game is not paused' });
-          }
-
-          // Verify user is part of this game
-          const userIdStr = decoded.userId.toString();
-          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
-          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
-          
-          if (!isWhitePlayer && !isBlackPlayer) {
-            return res.status(403).json({ success: false, message: 'Not a player in this game' });
-          }
-
-          await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                status: 'active',
-                resumedAt: new Date(),
-                version: (gameSession.version || 0) + 1
-              },
-              $unset: {
-                pausedAt: 1,
-                pauseRequest: 1
-              }
-            }
-          );
-
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Game resumed'
-          });
-        } catch (error) {
-          console.error('Error resuming game:', error);
-          return res.status(500).json({ success: false, message: 'Failed to resume game' });
-        }
-      }
-
-      if (req.method === 'PATCH' && action === 'end') {
-        const { gameId, result, reason } = req.body;
-        
-        try {
-          await db.collection('game_sessions').updateOne(
-            { gameId },
-            {
-              $set: {
-                status: 'completed',
-                result,
-                reason,
-                endedAt: new Date(),
-                version: (gameSession.version || 0) + 1
-              }
-            }
-          );
-
-          return res.status(200).json({ success: true, message: 'Game ended successfully' });
-        } catch (error) {
-          console.error('Error ending game:', error);
-          return res.status(500).json({ success: false, message: 'Failed to end game' });
-        }
-      }
-    }
-
-    // Challenges endpoints
-    if (endpoint === 'challenges') {
-      const decoded = verifyToken(req);
-      if (!decoded) {
-        return res.status(401).json({ success: false, message: 'Authentication required' });
-      }
-
-      if (req.method === 'POST' && action === 'send') {
-        const { challengedUserId, timeControl } = req.body;
-
-        try {
-          // Validate input
-          if (!challengedUserId || !timeControl) {
-            return res.status(400).json({ success: false, message: 'Challenged user ID and time control are required' });
-          }
-
-          if (challengedUserId === decoded.userId) {
-            return res.status(400).json({ success: false, message: 'Cannot challenge yourself' });
-          }
-
-          // Check if challenged user exists
-          const challengedUser = await db.collection('users').findOne({ _id: toObjectId(challengedUserId) });
-          if (!challengedUser) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-          }
-
-          // Check for existing pending challenge between these users
-          const existingChallenge = await db.collection('challenges').findOne({
-            $or: [
-              { challengerId: decoded.userId, challengedUserId: challengedUserId, status: 'pending' },
-              { challengerId: challengedUserId, challengedUserId: decoded.userId, status: 'pending' }
-            ]
-          });
-
-          if (existingChallenge) {
-            return res.status(400).json({ success: false, message: 'A pending challenge already exists between you and this user' });
-          }
-
-          const challenge = {
-            id: generateGameId(),
-            challengerId: decoded.userId,
-            challengedUserId: challengedUserId,
-            timeControl: parseInt(timeControl),
-            status: 'pending',
-            createdAt: new Date()
-          };
-
-          const result = await db.collection('challenges').insertOne(challenge);
-          
-          if (!result.insertedId) {
-            return res.status(500).json({ success: false, message: 'Failed to create challenge' });
-          }
-
-          console.log('✅ Challenge created:', {
-            challengeId: challenge.id,
-            challenger: decoded.userId,
-            challenged: challengedUserId,
-            timeControl: challenge.timeControl
-          });
-
-          return res.status(200).json({ 
-            success: true, 
-            message: 'Challenge sent successfully',
-            challengeId: challenge.id
-          });
-        } catch (error) {
-          console.error('Error sending challenge:', error);
-          return res.status(500).json({ success: false, message: 'Failed to send challenge' });
-        }
-      }
-
-      if (req.method === 'GET' && action === 'received') {
-        try {
-          const challenges = await db.collection('challenges').find({
-            challengedUserId: decoded.userId,
-            status: 'pending'
-          }).toArray();
-
-          // Populate challenger data safely
-          const challengesWithUsers = [];
-          for (const challenge of challenges) {
-            try {
-              const challenger = await db.collection('users').findOne({ _id: toObjectId(challenge.challengerId) });
-              if (challenger) {
-                challengesWithUsers.push({
-                  id: challenge.id,
-                  timeControl: challenge.timeControl,
-                  status: challenge.status,
-                  createdAt: challenge.createdAt,
-                  challenger: {
-                    id: challenger._id,
-                    username: challenger.username,
-                    chessRating: challenger.chessRating || 1200
-                  }
-                });
-              }
-            } catch (error) {
-              console.error('Error populating challenger data:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, challenges: challengesWithUsers });
-        } catch (error) {
-          console.error('Error fetching received challenges:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
-        }
-      }
-
-      if (req.method === 'GET' && action === 'sent') {
-        try {
-          const challenges = await db.collection('challenges').find({
-            challengerId: decoded.userId
-          }).toArray();
-
-          // Populate challenged user data safely
-          const challengesWithUsers = [];
-          for (const challenge of challenges) {
-            try {
-              const challenged = await db.collection('users').findOne({ _id: toObjectId(challenge.challengedUserId) });
-              if (challenged) {
-                challengesWithUsers.push({
-                  id: challenge.id,
-                  timeControl: challenge.timeControl,
-                  status: challenge.status,
-                  gameId: challenge.gameId,
-                  createdAt: challenge.createdAt,
-                  challenged: {
-                    id: challenged._id,
-                    username: challenged.username,
-                    chessRating: challenged.chessRating || 1200
-                  }
-                });
-              }
-            } catch (error) {
-              console.error('Error populating challenged user data:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, challenges: challengesWithUsers });
-        } catch (error) {
-          console.error('Error fetching sent challenges:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch challenges' });
-        }
-      }
-
-      if (req.method === 'PATCH' && action === 'respond') {
-        const { challengeId, response } = req.body;
-
-        try {
-          if (!challengeId || !response) {
-            return res.status(400).json({ success: false, message: 'Challenge ID and response are required' });
-          }
-
-          const challenge = await db.collection('challenges').findOne({ 
-            id: challengeId,
-            challengedUserId: decoded.userId,
-            status: 'pending'
-          });
-
-          if (!challenge) {
-            return res.status(404).json({ success: false, message: 'Challenge not found or already responded to' });
-          }
-
-          if (response === 'accept') {
-            // Create game session
-            const gameId = generateGameId();
-            const gameSession = {
-              gameId,
-              whitePlayerId: challenge.challengerId,
-              blackPlayerId: decoded.userId,
-              timeControl: challenge.timeControl,
-              whiteTimeLeft: challenge.timeControl,
-              blackTimeLeft: challenge.timeControl,
-              moves: [],
-              turn: 'w', // White always starts
-              status: 'active',
-              version: 0,
-              createdAt: new Date()
-            };
-
-            const gameResult = await db.collection('game_sessions').insertOne(gameSession);
-            
-            if (!gameResult.insertedId) {
-              return res.status(500).json({ success: false, message: 'Failed to create game session' });
-            }
-
-            // Update challenge status
-            await db.collection('challenges').updateOne(
-              { id: challengeId },
-              { 
-                $set: { 
-                  status: 'accepted', 
-                  gameId,
-                  respondedAt: new Date() 
-                } 
-              }
-            );
-
-            console.log('✅ Challenge accepted, game created:', {
-              challengeId,
-              gameId,
-              whitePlayer: challenge.challengerId,
-              blackPlayer: decoded.userId
-            });
-
-            return res.status(200).json({ 
-              success: true, 
-              message: 'Challenge accepted',
-              gameId 
-            });
-          } else if (response === 'decline') {
-            // Decline challenge
-            await db.collection('challenges').updateOne(
-              { id: challengeId },
-              { 
-                $set: { 
-                  status: 'declined',
-                  respondedAt: new Date() 
-                } 
-              }
-            );
-
-            return res.status(200).json({ success: true, message: 'Challenge declined' });
-          } else {
-            return res.status(400).json({ success: false, message: 'Invalid response. Must be "accept" or "decline"' });
-          }
-        } catch (error) {
-          console.error('Error responding to challenge:', error);
-          return res.status(500).json({ success: false, message: 'Failed to respond to challenge' });
-        }
-      }
-
-      if (req.method === 'DELETE' && action === 'cancel') {
-        const { challengeId } = req.query;
-
-        try {
-          if (!challengeId) {
-            return res.status(400).json({ success: false, message: 'Challenge ID is required' });
-          }
-
-          const result = await db.collection('challenges').deleteOne({
-            id: challengeId,
-            challengerId: decoded.userId,
-            status: 'pending'
-          });
-
-          if (result.deletedCount === 0) {
-            return res.status(404).json({ success: false, message: 'Challenge not found or cannot be cancelled' });
-          }
-
-          return res.status(200).json({ success: true, message: 'Challenge cancelled' });
-        } catch (error) {
-          console.error('Error cancelling challenge:', error);
-          return res.status(500).json({ success: false, message: 'Failed to cancel challenge' });
-        }
+        const { password: _, ...userWithoutPassword } = user;
+        return res.json({ success: true, user: userWithoutPassword });
       }
     }
 
     // Friends endpoints
     if (endpoint === 'friends') {
-      const decoded = verifyToken(req);
-      if (!decoded) {
+      const user = await getUserFromToken(req);
+      if (!user) {
         return res.status(401).json({ success: false, message: 'Authentication required' });
       }
 
-      if (req.method === 'GET' && req.query.q) {
-        // Search users
-        const searchQuery = req.query.q;
-        try {
-          const users = await db.collection('users').find({
-            $or: [
-              { username: { $regex: searchQuery, $options: 'i' } },
-              { fullName: { $regex: searchQuery, $options: 'i' } }
-            ],
-            _id: { $ne: toObjectId(decoded.userId) }
-          }).limit(20).toArray();
-
-          // Check friendship status for each user safely
-          const userResults = [];
-          for (const user of users) {
-            try {
-              // Check if already friends
-              const friendship = await db.collection('friendships').findOne({
-                $or: [
-                  { user1Id: decoded.userId, user2Id: user._id.toString() },
-                  { user1Id: user._id.toString(), user2Id: decoded.userId }
-                ]
-              });
-
-              // Check if friend request already sent
-              const friendRequest = await db.collection('friend_requests').findOne({
-                $or: [
-                  { senderId: decoded.userId, receiverId: user._id.toString(), status: 'pending' },
-                  { senderId: user._id.toString(), receiverId: decoded.userId, status: 'pending' }
-                ]
-              });
-
-              userResults.push({
-                id: user._id.toString(),
-                username: user.username,
-                fullName: user.fullName,
-                chessRating: user.chessRating || 1200,
-                isFriend: !!friendship,
-                friendRequestSent: !!friendRequest
-              });
-            } catch (error) {
-              console.error('Error checking friendship status:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, users: userResults });
-        } catch (error) {
-          console.error('Error searching users:', error);
-          return res.status(500).json({ success: false, message: 'Failed to search users' });
-        }
-      }
-
-      if (req.method === 'GET' && req.query.type === 'requests') {
-        // Get friend requests
-        try {
-          const requests = await db.collection('friend_requests').find({
-            receiverId: decoded.userId,
+      if (req.method === 'GET') {
+        const { q, type } = req.query;
+        
+        if (type === 'requests') {
+          // Get friend requests
+          const requests = await db.collection('friendRequests').find({
+            receiverId: user._id,
             status: 'pending'
           }).toArray();
-
-          // Populate sender data safely
-          const requestsWithUsers = [];
-          for (const request of requests) {
-            try {
-              const sender = await db.collection('users').findOne({ _id: toObjectId(request.senderId) });
-              if (sender) {
-                requestsWithUsers.push({
-                  id: request._id,
-                  sender: {
-                    id: sender._id,
-                    username: sender.username,
-                    chessRating: sender.chessRating || 1200
-                  }
-                });
-              }
-            } catch (error) {
-              console.error('Error populating sender data:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, requests: requestsWithUsers });
-        } catch (error) {
-          console.error('Error fetching friend requests:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch friend requests' });
+          
+          const requestsWithSender = await Promise.all(
+            requests.map(async (request) => {
+              const sender = await db.collection('users').findOne({ _id: request.senderId });
+              return {
+                id: request._id,
+                sender: {
+                  id: sender._id,
+                  username: sender.username,
+                  chessRating: sender.chessRating
+                }
+              };
+            })
+          );
+          
+          return res.json({ success: true, requests: requestsWithSender });
         }
-      }
-
-      if (req.method === 'GET') {
-        // Get friends list
-        try {
-          const friendships = await db.collection('friendships').find({
+        
+        if (q) {
+          // Search users
+          const users = await db.collection('users').find({
             $or: [
-              { user1Id: decoded.userId },
-              { user2Id: decoded.userId }
-            ]
-          }).toArray();
-
-          // Populate friend data safely
-          const friendsWithUsers = [];
-          for (const friendship of friendships) {
-            try {
-              const friendId = friendship.user1Id === decoded.userId ? friendship.user2Id : friendship.user1Id;
-              const friend = await db.collection('users').findOne({ _id: toObjectId(friendId) });
-              if (friend) {
-                friendsWithUsers.push({
-                  id: friend._id.toString(),
-                  username: friend.username,
-                  chessRating: friend.chessRating || 1200,
-                  lastSeen: friend.lastSeen
-                });
-              }
-            } catch (error) {
-              console.error('Error populating friend data:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, friends: friendsWithUsers });
-        } catch (error) {
-          console.error('Error fetching friends:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch friends' });
+              { username: { $regex: q, $options: 'i' } },
+              { fullName: { $regex: q, $options: 'i' } }
+            ],
+            _id: { $ne: user._id }
+          }).limit(20).toArray();
+          
+          return res.json({ success: true, users });
         }
+        
+        // Get friends list
+        const friendships = await db.collection('friendships').find({
+          $or: [{ user1Id: user._id }, { user2Id: user._id }]
+        }).toArray();
+        
+        const friendIds = friendships.map(f => 
+          f.user1Id.equals(user._id) ? f.user2Id : f.user1Id
+        );
+        
+        const friends = await db.collection('users').find({
+          _id: { $in: friendIds }
+        }).toArray();
+        
+        return res.json({ success: true, friends });
       }
-
+      
       if (req.method === 'POST') {
         // Send friend request
         const { userId } = req.body;
-
-        if (!userId) {
-          return res.status(400).json({ success: false, message: 'User ID is required' });
+        
+        const existingRequest = await db.collection('friendRequests').findOne({
+          senderId: user._id,
+          receiverId: new ObjectId(userId),
+          status: 'pending'
+        });
+        
+        if (existingRequest) {
+          return res.status(400).json({ success: false, message: 'Friend request already sent' });
         }
-
-        if (userId === decoded.userId) {
-          return res.status(400).json({ success: false, message: 'Cannot add yourself as friend' });
-        }
-
-        try {
-          // Check if user exists
-          const targetUser = await db.collection('users').findOne({ _id: toObjectId(userId) });
-          if (!targetUser) {
-            return res.status(404).json({ success: false, message: 'User not found' });
-          }
-
-          // Check if already friends or request exists
-          const existingFriendship = await db.collection('friendships').findOne({
-            $or: [
-              { user1Id: decoded.userId, user2Id: userId },
-              { user1Id: userId, user2Id: decoded.userId }
-            ]
-          });
-
-          if (existingFriendship) {
-            return res.status(400).json({ success: false, message: 'Already friends' });
-          }
-
-          const existingRequest = await db.collection('friend_requests').findOne({
-            $or: [
-              { senderId: decoded.userId, receiverId: userId },
-              { senderId: userId, receiverId: decoded.userId }
-            ],
-            status: 'pending'
-          });
-
-          if (existingRequest) {
-            return res.status(400).json({ success: false, message: 'Friend request already sent' });
-          }
-
-          await db.collection('friend_requests').insertOne({
-            senderId: decoded.userId,
-            receiverId: userId,
-            status: 'pending',
-            createdAt: new Date()
-          });
-
-          return res.status(200).json({ success: true, message: 'Friend request sent' });
-        } catch (error) {
-          console.error('Error sending friend request:', error);
-          return res.status(500).json({ success: false, message: 'Failed to send friend request' });
-        }
+        
+        await db.collection('friendRequests').insertOne({
+          senderId: user._id,
+          receiverId: new ObjectId(userId),
+          status: 'pending',
+          createdAt: new Date()
+        });
+        
+        return res.json({ success: true, message: 'Friend request sent' });
       }
-
+      
       if (req.method === 'PATCH') {
         // Accept/reject friend request
         const { requestId, action } = req.body;
-
-        try {
-          const request = await db.collection('friend_requests').findOne({
-            _id: toObjectId(requestId),
-            receiverId: decoded.userId,
-            status: 'pending'
+        
+        const request = await db.collection('friendRequests').findOne({
+          _id: new ObjectId(requestId),
+          receiverId: user._id
+        });
+        
+        if (!request) {
+          return res.status(404).json({ success: false, message: 'Friend request not found' });
+        }
+        
+        if (action === 'accept') {
+          // Create friendship
+          await db.collection('friendships').insertOne({
+            user1Id: request.senderId,
+            user2Id: user._id,
+            createdAt: new Date()
           });
+        }
+        
+        // Update request status
+        await db.collection('friendRequests').updateOne(
+          { _id: new ObjectId(requestId) },
+          { $set: { status: action === 'accept' ? 'accepted' : 'rejected' } }
+        );
+        
+        return res.json({ success: true, message: `Friend request ${action}ed` });
+      }
+    }
 
-          if (!request) {
-            return res.status(404).json({ success: false, message: 'Friend request not found' });
+    // Challenges endpoints
+    if (endpoint === 'challenges') {
+      const user = await getUserFromToken(req);
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+
+      if (action === 'send' && req.method === 'POST') {
+        const { challengedUserId, timeControl } = req.body;
+        
+        const challenge = {
+          challengerId: user._id,
+          challengedUserId: new ObjectId(challengedUserId),
+          timeControl,
+          status: 'pending',
+          createdAt: new Date()
+        };
+        
+        const result = await db.collection('challenges').insertOne(challenge);
+        return res.json({ success: true, challengeId: result.insertedId });
+      }
+      
+      if (action === 'received' && req.method === 'GET') {
+        const challenges = await db.collection('challenges').find({
+          challengedUserId: user._id,
+          status: 'pending'
+        }).toArray();
+        
+        const challengesWithChallenger = await Promise.all(
+          challenges.map(async (challenge) => {
+            const challenger = await db.collection('users').findOne({ _id: challenge.challengerId });
+            return {
+              id: challenge._id,
+              challenger: {
+                id: challenger._id,
+                username: challenger.username,
+                chessRating: challenger.chessRating
+              },
+              timeControl: challenge.timeControl,
+              createdAt: challenge.createdAt
+            };
+          })
+        );
+        
+        return res.json({ success: true, challenges: challengesWithChallenger });
+      }
+      
+      if (action === 'sent' && req.method === 'GET') {
+        const challenges = await db.collection('challenges').find({
+          challengerId: user._id,
+          status: { $in: ['pending', 'accepted'] }
+        }).toArray();
+        
+        const challengesWithChallenged = await Promise.all(
+          challenges.map(async (challenge) => {
+            const challenged = await db.collection('users').findOne({ _id: challenge.challengedUserId });
+            return {
+              id: challenge._id,
+              challenged: {
+                id: challenged._id,
+                username: challenged.username,
+                chessRating: challenged.chessRating
+              },
+              timeControl: challenge.timeControl,
+              status: challenge.status,
+              gameId: challenge.gameId,
+              createdAt: challenge.createdAt
+            };
+          })
+        );
+        
+        return res.json({ success: true, challenges: challengesWithChallenged });
+      }
+      
+      if (action === 'respond' && req.method === 'PATCH') {
+        const { challengeId, response } = req.body;
+        
+        const challenge = await db.collection('challenges').findOne({
+          _id: new ObjectId(challengeId),
+          challengedUserId: user._id
+        });
+        
+        if (!challenge) {
+          return res.status(404).json({ success: false, message: 'Challenge not found' });
+        }
+        
+        if (response === 'accept') {
+          const gameId = new ObjectId();
+          
+          // Create game session
+          const gameSession = {
+            _id: gameId,
+            whitePlayerId: challenge.challengerId,
+            blackPlayerId: user._id,
+            timeControl: challenge.timeControl,
+            whiteTimeLeft: challenge.timeControl,
+            blackTimeLeft: challenge.timeControl,
+            turn: 'w',
+            moves: [],
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+            status: 'active',
+            version: 0,
+            createdAt: new Date()
+          };
+          
+          await db.collection('gameSessions').insertOne(gameSession);
+          
+          // Update challenge
+          await db.collection('challenges').updateOne(
+            { _id: new ObjectId(challengeId) },
+            { 
+              $set: { 
+                status: 'accepted',
+                gameId: gameId,
+                acceptedAt: new Date()
+              }
+            }
+          );
+          
+          return res.json({ success: true, gameId: gameId.toString() });
+        } else {
+          // Decline challenge
+          await db.collection('challenges').updateOne(
+            { _id: new ObjectId(challengeId) },
+            { $set: { status: 'declined' } }
+          );
+          
+          return res.json({ success: true });
+        }
+      }
+      
+      if (action === 'complete' && req.method === 'PATCH') {
+        const { challengeId } = req.body;
+        
+        await db.collection('challenges').updateOne(
+          { _id: new ObjectId(challengeId) },
+          { $set: { status: 'completed' } }
+        );
+        
+        return res.json({ success: true });
+      }
+      
+      if (action === 'cancel' && req.method === 'DELETE') {
+        const { challengeId } = req.query;
+        
+        await db.collection('challenges').deleteOne({
+          _id: new ObjectId(challengeId),
+          challengerId: user._id
+        });
+        
+        return res.json({ success: true });
+      }
+    }
+
+    // Game sessions endpoints
+    if (endpoint === 'game-sessions') {
+      const user = await getUserFromToken(req);
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+
+      if (action === 'sync' && req.method === 'GET') {
+        const { gameId, lastVersion } = req.query;
+        
+        const gameSession = await db.collection('gameSessions').findOne({
+          _id: new ObjectId(gameId)
+        });
+        
+        if (!gameSession) {
+          return res.status(404).json({ success: false, message: 'Game not found' });
+        }
+        
+        const hasUpdates = gameSession.version > parseInt(lastVersion || 0);
+        
+        if (hasUpdates) {
+          // Get player info
+          const [whitePlayer, blackPlayer] = await Promise.all([
+            db.collection('users').findOne({ _id: gameSession.whitePlayerId }),
+            db.collection('users').findOne({ _id: gameSession.blackPlayerId })
+          ]);
+          
+          return res.json({
+            success: true,
+            hasUpdates: true,
+            gameState: {
+              ...gameSession,
+              whitePlayer: {
+                id: whitePlayer._id,
+                username: whitePlayer.username,
+                chessRating: whitePlayer.chessRating
+              },
+              blackPlayer: {
+                id: blackPlayer._id,
+                username: blackPlayer.username,
+                chessRating: blackPlayer.chessRating
+              }
+            }
+          });
+        }
+        
+        return res.json({ success: true, hasUpdates: false });
+      }
+      
+      if (action === 'move' && req.method === 'PATCH') {
+        const { gameId, move, fen } = req.body;
+        
+        const gameSession = await db.collection('gameSessions').findOne({
+          _id: new ObjectId(gameId)
+        });
+        
+        if (!gameSession) {
+          return res.status(404).json({ success: false, message: 'Game not found' });
+        }
+        
+        // Verify it's the player's turn
+        const isWhitePlayer = gameSession.whitePlayerId.equals(user._id);
+        const isBlackPlayer = gameSession.blackPlayerId.equals(user._id);
+        const isPlayerTurn = (gameSession.turn === 'w' && isWhitePlayer) || 
+                            (gameSession.turn === 'b' && isBlackPlayer);
+        
+        if (!isPlayerTurn) {
+          return res.status(400).json({ success: false, message: 'Not your turn' });
+        }
+        
+        // Update game session
+        const newTurn = gameSession.turn === 'w' ? 'b' : 'w';
+        const updatedMoves = [...gameSession.moves, move];
+        
+        await db.collection('gameSessions').updateOne(
+          { _id: new ObjectId(gameId) },
+          {
+            $set: {
+              moves: updatedMoves,
+              fen: fen,
+              turn: newTurn,
+              lastMoveBy: user._id,
+              lastMoveAt: new Date()
+            },
+            $inc: { version: 1 }
           }
+        );
+        
+        return res.json({ 
+          success: true, 
+          version: gameSession.version + 1,
+          turn: newTurn
+        });
+      }
+      
+      if (action === 'end' && req.method === 'PATCH') {
+        const { gameId, result, reason } = req.body;
+        
+        const gameSession = await db.collection('gameSessions').findOne({
+          _id: new ObjectId(gameId)
+        });
+        
+        if (!gameSession) {
+          return res.status(404).json({ success: false, message: 'Game not found' });
+        }
+        
+        // Get player info for rating calculations
+        const [whitePlayer, blackPlayer] = await Promise.all([
+          db.collection('users').findOne({ _id: gameSession.whitePlayerId }),
+          db.collection('users').findOne({ _id: gameSession.blackPlayerId })
+        ]);
+        
+        // Calculate rating changes
+        let whiteRatingChange = 0;
+        let blackRatingChange = 0;
+        
+        if (result === '1-0') {
+          // White wins
+          whiteRatingChange = calculateRatingChange(whitePlayer.chessRating, blackPlayer.chessRating, 'win');
+          blackRatingChange = calculateRatingChange(blackPlayer.chessRating, whitePlayer.chessRating, 'loss');
+        } else if (result === '0-1') {
+          // Black wins
+          whiteRatingChange = calculateRatingChange(whitePlayer.chessRating, blackPlayer.chessRating, 'loss');
+          blackRatingChange = calculateRatingChange(blackPlayer.chessRating, whitePlayer.chessRating, 'win');
+        } else if (result === '1/2-1/2') {
+          // Draw
+          whiteRatingChange = calculateRatingChange(whitePlayer.chessRating, blackPlayer.chessRating, 'draw');
+          blackRatingChange = calculateRatingChange(blackPlayer.chessRating, whitePlayer.chessRating, 'draw');
+        }
+        
+        // Update game session
+        await db.collection('gameSessions').updateOne(
+          { _id: new ObjectId(gameId) },
+          {
+            $set: {
+              status: 'completed',
+              result: result,
+              reason: reason,
+              endedAt: new Date(),
+              ratingChange: {
+                white: whiteRatingChange,
+                black: blackRatingChange
+              }
+            },
+            $inc: { version: 1 }
+          }
+        );
+        
+        // FIXED: Update user stats and ratings
+        await Promise.all([
+          // Update white player
+          db.collection('users').updateOne(
+            { _id: gameSession.whitePlayerId },
+            {
+              $inc: {
+                chessRating: whiteRatingChange,
+                gamesPlayed: 1,
+                ...(result === '1-0' && { gamesWon: 1 }),
+                ...(result === '1/2-1/2' && { gamesDrawn: 1 })
+              },
+              $set: { lastGameAt: new Date() }
+            }
+          ),
+          // Update black player
+          db.collection('users').updateOne(
+            { _id: gameSession.blackPlayerId },
+            {
+              $inc: {
+                chessRating: blackRatingChange,
+                gamesPlayed: 1,
+                ...(result === '0-1' && { gamesWon: 1 }),
+                ...(result === '1/2-1/2' && { gamesDrawn: 1 })
+              },
+              $set: { lastGameAt: new Date() }
+            }
+          )
+        ]);
+        
+        // FIXED: Create game record for analytics
+        const gameRecord = {
+          gameSessionId: gameSession._id,
+          whitePlayer: {
+            id: whitePlayer._id,
+            username: whitePlayer.username,
+            rating: whitePlayer.chessRating
+          },
+          blackPlayer: {
+            id: blackPlayer._id,
+            username: blackPlayer.username,
+            rating: blackPlayer.chessRating
+          },
+          result: result,
+          reason: reason,
+          moves: gameSession.moves.length,
+          duration: Math.floor((new Date() - gameSession.createdAt) / 1000),
+          timeControl: gameSession.timeControl > 900 ? 'Classical' : 
+                      gameSession.timeControl > 600 ? 'Rapid' : 'Blitz',
+          gameType: 'ranked',
+          ratingChange: {
+            white: whiteRatingChange,
+            black: blackRatingChange
+          },
+          createdAt: gameSession.createdAt,
+          endedAt: new Date()
+        };
+        
+        await db.collection('games').insertOne(gameRecord);
+        
+        return res.json({ success: true });
+      }
+      
+      if (req.method === 'GET') {
+        const { gameId } = req.query;
+        
+        const gameSession = await db.collection('gameSessions').findOne({
+          _id: new ObjectId(gameId)
+        });
+        
+        if (!gameSession) {
+          return res.status(404).json({ success: false, message: 'Game not found' });
+        }
+        
+        // Get player info
+        const [whitePlayer, blackPlayer] = await Promise.all([
+          db.collection('users').findOne({ _id: gameSession.whitePlayerId }),
+          db.collection('users').findOne({ _id: gameSession.blackPlayerId })
+        ]);
+        
+        return res.json({
+          success: true,
+          gameSession: {
+            ...gameSession,
+            whitePlayer: {
+              id: whitePlayer._id,
+              username: whitePlayer.username,
+              chessRating: whitePlayer.chessRating
+            },
+            blackPlayer: {
+              id: blackPlayer._id,
+              username: blackPlayer.username,
+              chessRating: blackPlayer.chessRating
+            }
+          }
+        });
+      }
+    }
 
-          if (action === 'accept') {
-            // Create friendship
-            await db.collection('friendships').insertOne({
-              user1Id: request.senderId,
-              user2Id: decoded.userId,
-              createdAt: new Date()
-            });
+    // Games endpoints
+    if (endpoint === 'games') {
+      const user = await getUserFromToken(req);
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
 
-            // Update request status
-            await db.collection('friend_requests').updateOne(
-              { _id: toObjectId(requestId) },
-              { $set: { status: 'accepted', respondedAt: new Date() } }
-            );
-
-            return res.status(200).json({ success: true, message: 'Friend request accepted' });
+      if (action === 'pgn' && req.method === 'GET') {
+        const { gameId } = req.query;
+        
+        const game = await db.collection('games').findOne({
+          _id: new ObjectId(gameId)
+        });
+        
+        if (!game) {
+          return res.status(404).json({ success: false, message: 'Game not found' });
+        }
+        
+        // Generate PGN
+        let pgn = `[Event "Chess Club Game"]\n`;
+        pgn += `[Site "IIT Dharwad Chess Club"]\n`;
+        pgn += `[Date "${game.createdAt.toISOString().split('T')[0]}"]\n`;
+        pgn += `[Round "?"]\n`;
+        pgn += `[White "${game.whitePlayer.username}"]\n`;
+        pgn += `[Black "${game.blackPlayer.username}"]\n`;
+        pgn += `[Result "${game.result}"]\n`;
+        pgn += `[TimeControl "${game.timeControl}"]\n`;
+        pgn += `[WhiteElo "${game.whitePlayer.rating}"]\n`;
+        pgn += `[BlackElo "${game.blackPlayer.rating}"]\n\n`;
+        
+        // Add moves (simplified - would need actual move notation)
+        pgn += `1. e4 e5 2. Nf3 Nc6 ${game.result}`;
+        
+        return res.json({ success: true, pgn });
+      }
+      
+      if (action === 'head-to-head' && req.method === 'GET') {
+        const { player1Id, player2Id } = req.query;
+        
+        // Get games between these two players
+        const games = await db.collection('games').find({
+          $or: [
+            { 
+              'whitePlayer.id': new ObjectId(player1Id),
+              'blackPlayer.id': new ObjectId(player2Id)
+            },
+            {
+              'whitePlayer.id': new ObjectId(player2Id),
+              'blackPlayer.id': new ObjectId(player1Id)
+            }
+          ]
+        }).sort({ createdAt: -1 }).toArray();
+        
+        // Get player info
+        const [player1, player2] = await Promise.all([
+          db.collection('users').findOne({ _id: new ObjectId(player1Id) }),
+          db.collection('users').findOne({ _id: new ObjectId(player2Id) })
+        ]);
+        
+        // Calculate stats
+        let player1Wins = 0;
+        let player2Wins = 0;
+        let draws = 0;
+        
+        games.forEach(game => {
+          if (game.result === '1/2-1/2') {
+            draws++;
+          } else if (
+            (game.result === '1-0' && game.whitePlayer.id.equals(new ObjectId(player1Id))) ||
+            (game.result === '0-1' && game.blackPlayer.id.equals(new ObjectId(player1Id)))
+          ) {
+            player1Wins++;
           } else {
-            // Reject request
-            await db.collection('friend_requests').updateOne(
-              { _id: toObjectId(requestId) },
-              { $set: { status: 'rejected', respondedAt: new Date() } }
-            );
-
-            return res.status(200).json({ success: true, message: 'Friend request rejected' });
+            player2Wins++;
           }
-        } catch (error) {
-          console.error('Error responding to friend request:', error);
-          return res.status(500).json({ success: false, message: 'Failed to respond to friend request' });
+        });
+        
+        const totalGames = games.length;
+        
+        const h2hData = {
+          player1: {
+            username: player1.username,
+            wins: player1Wins,
+            draws: draws,
+            winRate: totalGames > 0 ? ((player1Wins / totalGames) * 100).toFixed(1) : 0,
+            rating: player1.chessRating
+          },
+          player2: {
+            username: player2.username,
+            wins: player2Wins,
+            draws: draws,
+            winRate: totalGames > 0 ? ((player2Wins / totalGames) * 100).toFixed(1) : 0,
+            rating: player2.chessRating
+          },
+          totalGames,
+          lastGameAt: games.length > 0 ? games[0].createdAt : null,
+          recentGames: games.slice(0, 5).map(game => ({
+            result: game.result,
+            timeControl: game.timeControl,
+            moves: game.moves,
+            createdAt: game.createdAt
+          }))
+        };
+        
+        return res.json({ success: true, headToHead: h2hData });
+      }
+    }
+
+    // Admin endpoints
+    if (endpoint === 'admin') {
+      const user = await getUserFromToken(req);
+      if (!user || user.role !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Admin access required' });
+      }
+
+      if (resource === 'users') {
+        if (req.method === 'GET') {
+          const users = await db.collection('users').find({}).toArray();
+          const usersWithStats = users.map(user => {
+            const { password, ...userWithoutPassword } = user;
+            return {
+              ...userWithoutPassword,
+              id: user._id,
+              winRate: user.gamesPlayed > 0 ? ((user.gamesWon / user.gamesPlayed) * 100).toFixed(1) : 0
+            };
+          });
+          return res.json({ success: true, users: usersWithStats });
+        }
+        
+        if (req.method === 'PUT') {
+          const { userId, updates } = req.body;
+          await db.collection('users').updateOne(
+            { _id: new ObjectId(userId) },
+            { $set: updates }
+          );
+          return res.json({ success: true });
+        }
+        
+        if (req.method === 'DELETE') {
+          const { userId } = req.body;
+          await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+          return res.json({ success: true });
+        }
+      }
+      
+      if (resource === 'games') {
+        if (req.method === 'GET') {
+          const games = await db.collection('games').find({}).sort({ createdAt: -1 }).toArray();
+          const gamesWithId = games.map(game => ({
+            ...game,
+            id: game._id
+          }));
+          return res.json({ success: true, games: gamesWithId });
         }
       }
     }
 
     // Tournaments endpoints
     if (endpoint === 'tournaments') {
-      const decoded = verifyToken(req);
-      if (!decoded) {
+      const user = await getUserFromToken(req);
+      if (!user) {
         return res.status(401).json({ success: false, message: 'Authentication required' });
       }
 
       if (req.method === 'GET') {
-        // Get all tournaments
-        try {
-          const tournaments = await db.collection('tournaments').find({}).toArray();
-
-          // Populate participant data safely
-          const tournamentsWithParticipants = [];
-          for (const tournament of tournaments) {
-            try {
-              const participants = [];
-              for (const participantId of (tournament.participants || [])) {
-                try {
-                  const user = await db.collection('users').findOne({ _id: toObjectId(participantId) });
-                  if (user) {
-                    participants.push({
-                      userId: user._id.toString(),
-                      username: user.username,
-                      rating: user.chessRating || 1200
-                    });
-                  }
-                } catch (error) {
-                  console.error('Error populating participant:', error);
-                }
-              }
-
-              tournamentsWithParticipants.push({
-                ...tournament,
-                participants
-              });
-            } catch (error) {
-              console.error('Error processing tournament:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, tournaments: tournamentsWithParticipants });
-        } catch (error) {
-          console.error('Error fetching tournaments:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch tournaments' });
-        }
+        const tournaments = await db.collection('tournaments').find({}).sort({ startTime: -1 }).toArray();
+        const tournamentsWithParticipants = await Promise.all(
+          tournaments.map(async (tournament) => {
+            const participants = await db.collection('tournamentParticipants').find({
+              tournamentId: tournament._id
+            }).toArray();
+            
+            const participantsWithUserInfo = await Promise.all(
+              participants.map(async (participant) => {
+                const user = await db.collection('users').findOne({ _id: participant.userId });
+                return {
+                  userId: user._id,
+                  username: user.username,
+                  rating: user.chessRating
+                };
+              })
+            );
+            
+            return {
+              ...tournament,
+              id: tournament._id,
+              participants: participantsWithUserInfo
+            };
+          })
+        );
+        
+        return res.json({ success: true, tournaments: tournamentsWithParticipants });
       }
-
+      
       if (req.method === 'POST') {
-        // Create tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
-        if (!user || user.role !== 'admin') {
+        if (user.role !== 'admin') {
           return res.status(403).json({ success: false, message: 'Admin access required' });
         }
-
-        const {
-          name,
-          description,
-          format,
-          timeControl,
-          maxParticipants,
-          startTime,
-          endTime,
-          prizePool
-        } = req.body;
-
-        if (!name || !format || !timeControl || !maxParticipants || !startTime) {
-          return res.status(400).json({ success: false, message: 'Required fields missing' });
-        }
-
-        try {
-          const tournament = {
-            id: generateGameId(),
-            name,
-            description: description || '',
-            format,
-            timeControl: parseInt(timeControl),
-            maxParticipants: parseInt(maxParticipants),
-            startTime: new Date(startTime),
-            endTime: endTime ? new Date(endTime) : null,
-            prizePool: parseInt(prizePool) || 0,
-            participants: [],
-            status: 'upcoming',
-            bracket: null,
-            createdBy: decoded.userId,
-            createdAt: new Date()
-          };
-
-          await db.collection('tournaments').insertOne(tournament);
-
-          return res.status(201).json({ success: true, message: 'Tournament created successfully', tournament });
-        } catch (error) {
-          console.error('Error creating tournament:', error);
-          return res.status(500).json({ success: false, message: 'Failed to create tournament' });
-        }
+        
+        const tournament = {
+          ...req.body,
+          createdBy: user._id,
+          createdAt: new Date(),
+          status: 'upcoming'
+        };
+        
+        const result = await db.collection('tournaments').insertOne(tournament);
+        return res.json({ success: true, tournamentId: result.insertedId });
       }
-
-      if (req.method === 'POST' && action === 'join') {
-        // Join tournament
+      
+      if (action === 'join' && req.method === 'POST') {
         const { tournamentId } = req.query;
-
-        try {
-          const tournament = await db.collection('tournaments').findOne({ id: tournamentId });
-          if (!tournament) {
-            return res.status(404).json({ success: false, message: 'Tournament not found' });
-          }
-
-          if (tournament.participants.includes(decoded.userId)) {
-            return res.status(400).json({ success: false, message: 'Already joined this tournament' });
-          }
-
-          if (tournament.participants.length >= tournament.maxParticipants) {
-            return res.status(400).json({ success: false, message: 'Tournament is full' });
-          }
-
-          if (new Date() > tournament.startTime) {
-            return res.status(400).json({ success: false, message: 'Tournament has already started' });
-          }
-
-          await db.collection('tournaments').updateOne(
-            { id: tournamentId },
-            { $push: { participants: decoded.userId } }
-          );
-
-          return res.status(200).json({ success: true, message: 'Successfully joined tournament' });
-        } catch (error) {
-          console.error('Error joining tournament:', error);
-          return res.status(500).json({ success: false, message: 'Failed to join tournament' });
+        
+        const existingParticipant = await db.collection('tournamentParticipants').findOne({
+          tournamentId: new ObjectId(tournamentId),
+          userId: user._id
+        });
+        
+        if (existingParticipant) {
+          return res.status(400).json({ success: false, message: 'Already joined this tournament' });
         }
+        
+        await db.collection('tournamentParticipants').insertOne({
+          tournamentId: new ObjectId(tournamentId),
+          userId: user._id,
+          joinedAt: new Date()
+        });
+        
+        return res.json({ success: true });
       }
-
-      if (req.method === 'PUT') {
-        // Update tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
-        if (!user || user.role !== 'admin') {
-          return res.status(403).json({ success: false, message: 'Admin access required' });
-        }
-
-        const { tournamentId } = req.query;
-        const updates = req.body;
-
-        try {
-          // Remove fields that shouldn't be updated directly
-          delete updates._id;
-          delete updates.id;
-          delete updates.createdAt;
-          delete updates.createdBy;
-
-          await db.collection('tournaments').updateOne(
-            { id: tournamentId },
-            { $set: { ...updates, updatedAt: new Date() } }
-          );
-
-          return res.status(200).json({ success: true, message: 'Tournament updated successfully' });
-        } catch (error) {
-          console.error('Error updating tournament:', error);
-          return res.status(500).json({ success: false, message: 'Failed to update tournament' });
-        }
-      }
-
+      
       if (req.method === 'DELETE') {
-        // Delete tournament (admin only)
-        const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
-        if (!user || user.role !== 'admin') {
+        if (user.role !== 'admin') {
           return res.status(403).json({ success: false, message: 'Admin access required' });
         }
-
+        
         const { tournamentId } = req.query;
-
-        try {
-          await db.collection('tournaments').deleteOne({ id: tournamentId });
-
-          return res.status(200).json({ success: true, message: 'Tournament deleted successfully' });
-        } catch (error) {
-          console.error('Error deleting tournament:', error);
-          return res.status(500).json({ success: false, message: 'Failed to delete tournament' });
-        }
-      }
-    }
-
-    // Admin endpoints
-    if (endpoint === 'admin') {
-      const decoded = verifyToken(req);
-      if (!decoded) {
-        return res.status(401).json({ success: false, message: 'Authentication required' });
-      }
-
-      const user = await db.collection('users').findOne({ _id: toObjectId(decoded.userId) });
-      if (!user || user.role !== 'admin') {
-        return res.status(403).json({ success: false, message: 'Admin access required' });
-      }
-
-      if (resource === 'users' && req.method === 'GET') {
-        try {
-          const users = await db.collection('users').find({}).toArray();
-          const userList = users.map(user => ({
-            id: user._id,
-            username: user.username,
-            email: user.email,
-            fullName: user.fullName,
-            chessRating: user.chessRating || 1200,
-            gamesPlayed: user.gamesPlayed || 0,
-            gamesWon: user.gamesWon || 0,
-            winRate: user.gamesPlayed > 0 ? ((user.gamesWon / user.gamesPlayed) * 100).toFixed(1) : 0,
-            role: user.role || 'user',
-            isActive: user.isActive !== false,
-            createdAt: user.createdAt
-          }));
-
-          return res.status(200).json({ success: true, users: userList });
-        } catch (error) {
-          console.error('Error fetching users:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch users' });
-        }
-      }
-
-      if (resource === 'users' && req.method === 'PUT') {
-        const { userId, updates } = req.body;
         
-        try {
-          // Remove sensitive fields
-          delete updates.password;
-          delete updates._id;
-          
-          await db.collection('users').updateOne(
-            { _id: toObjectId(userId) },
-            { $set: { ...updates, updatedAt: new Date() } }
-          );
-
-          return res.status(200).json({ success: true, message: 'User updated successfully' });
-        } catch (error) {
-          console.error('Error updating user:', error);
-          return res.status(500).json({ success: false, message: 'Failed to update user' });
-        }
-      }
-
-      if (resource === 'users' && req.method === 'DELETE') {
-        const { userId } = req.body;
+        // Delete tournament and participants
+        await Promise.all([
+          db.collection('tournaments').deleteOne({ _id: new ObjectId(tournamentId) }),
+          db.collection('tournamentParticipants').deleteMany({ tournamentId: new ObjectId(tournamentId) })
+        ]);
         
-        if (userId === decoded.userId) {
-          return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
-        }
-
-        try {
-          await db.collection('users').deleteOne({ _id: toObjectId(userId) });
-
-          return res.status(200).json({ success: true, message: 'User deleted successfully' });
-        } catch (error) {
-          console.error('Error deleting user:', error);
-          return res.status(500).json({ success: false, message: 'Failed to delete user' });
-        }
-      }
-
-      if (resource === 'games' && req.method === 'GET') {
-        try {
-          const games = await db.collection('game_sessions').find({
-            status: 'completed'
-          }).toArray();
-
-          // Populate player data safely
-          const gamesWithPlayers = [];
-          for (const game of games) {
-            try {
-              const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(game.whitePlayerId) });
-              const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(game.blackPlayerId) });
-
-              if (whitePlayer && blackPlayer) {
-                gamesWithPlayers.push({
-                  id: game._id,
-                  result: game.result || '1/2-1/2',
-                  timeControl: `${Math.floor((game.timeControl || 600) / 60)} min`,
-                  duration: game.endedAt && game.createdAt ? Math.floor((new Date(game.endedAt) - new Date(game.createdAt)) / 1000) : 0,
-                  moves: (game.moves || []).length,
-                  gameType: game.gameType || 'casual',
-                  createdAt: game.createdAt,
-                  endedAt: game.endedAt,
-                  whitePlayer: {
-                    id: whitePlayer._id,
-                    username: whitePlayer.username,
-                    rating: whitePlayer.chessRating || 1200
-                  },
-                  blackPlayer: {
-                    id: blackPlayer._id,
-                    username: blackPlayer.username,
-                    rating: blackPlayer.chessRating || 1200
-                  }
-                });
-              }
-            } catch (error) {
-              console.error('Error populating game data:', error);
-            }
-          }
-
-          return res.status(200).json({ success: true, games: gamesWithPlayers });
-        } catch (error) {
-          console.error('Error fetching games:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch games' });
-        }
+        return res.json({ success: true });
       }
     }
 
     return res.status(404).json({ success: false, message: 'Endpoint not found' });
-
+    
   } catch (error) {
     console.error('API Error:', error);
     return res.status(500).json({ 
