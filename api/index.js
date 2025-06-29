@@ -57,6 +57,26 @@ function calculateRatingChange(playerRating, opponentRating, result) {
   return Math.round(K * (actualScore - expectedScore));
 }
 
+// FIXED: Helper function to update timer based on game state
+function updateGameTimer(gameSession, currentTurn) {
+  const now = new Date();
+  const lastMoveTime = gameSession.lastMoveAt || gameSession.createdAt;
+  const timeSinceLastMove = Math.floor((now - lastMoveTime) / 1000);
+  
+  // Only deduct time if the game is active and not paused
+  if (gameSession.status === 'active' && !gameSession.isPaused) {
+    if (currentTurn === 'w') {
+      // White's turn - deduct time from white
+      gameSession.whiteTimeLeft = Math.max(0, gameSession.whiteTimeLeft - timeSinceLastMove);
+    } else {
+      // Black's turn - deduct time from black
+      gameSession.blackTimeLeft = Math.max(0, gameSession.blackTimeLeft - timeSinceLastMove);
+    }
+  }
+  
+  return gameSession;
+}
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -503,7 +523,7 @@ export default async function handler(req, res) {
             const whitePlayerId = isUserWhite ? user._id : challenge.challengerId;
             const blackPlayerId = isUserWhite ? challenge.challengerId : user._id;
             
-            // Create game session
+            // FIXED: Create game session with proper timer initialization
             const gameSession = {
               _id: gameId,
               whitePlayerId: whitePlayerId,
@@ -514,8 +534,12 @@ export default async function handler(req, res) {
               turn: 'w',
               moves: [],
               fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-              status: 'active',
+              status: 'waiting', // FIXED: Start in waiting state until both players connect
               version: 0,
+              playersConnected: [], // Track which players have connected
+              gameStartTime: null, // Will be set when both players connect
+              lastMoveAt: null,
+              isPaused: false,
               createdAt: new Date()
             };
             
@@ -594,7 +618,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Game sessions endpoints
+    // FIXED: Game sessions endpoints with proper timer synchronization
     if (endpoint === 'game-sessions') {
       const user = await getUserFromToken(req);
       if (!user) {
@@ -605,12 +629,67 @@ export default async function handler(req, res) {
         try {
           const { gameId, lastVersion } = req.query;
           
-          const gameSession = await db.collection('gameSessions').findOne({
+          let gameSession = await db.collection('gameSessions').findOne({
             _id: new ObjectId(gameId)
           });
           
           if (!gameSession) {
             return res.status(404).json({ success: false, message: 'Game not found' });
+          }
+          
+          // FIXED: Track player connections and start game when both players connect
+          const userId = user._id.toString();
+          if (!gameSession.playersConnected.includes(userId)) {
+            await db.collection('gameSessions').updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $addToSet: { playersConnected: userId },
+                $inc: { version: 1 }
+              }
+            );
+            
+            // Refresh game session
+            gameSession = await db.collection('gameSessions').findOne({
+              _id: new ObjectId(gameId)
+            });
+          }
+          
+          // FIXED: Start the game when both players are connected
+          if (gameSession.status === 'waiting' && gameSession.playersConnected.length >= 2) {
+            const now = new Date();
+            await db.collection('gameSessions').updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: { 
+                  status: 'active',
+                  gameStartTime: now,
+                  lastMoveAt: now
+                },
+                $inc: { version: 1 }
+              }
+            );
+            
+            // Refresh game session
+            gameSession = await db.collection('gameSessions').findOne({
+              _id: new ObjectId(gameId)
+            });
+          }
+          
+          // FIXED: Update timers based on current game state
+          if (gameSession.status === 'active') {
+            gameSession = updateGameTimer(gameSession, gameSession.turn);
+            
+            // Save updated timer values
+            await db.collection('gameSessions').updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: {
+                  whiteTimeLeft: gameSession.whiteTimeLeft,
+                  blackTimeLeft: gameSession.blackTimeLeft,
+                  lastTimerUpdate: new Date()
+                }
+              }
+            );
           }
           
           const hasUpdates = gameSession.version > parseInt(lastVersion || 0);
@@ -652,7 +731,7 @@ export default async function handler(req, res) {
         try {
           const { gameId, move, fen } = req.body;
           
-          const gameSession = await db.collection('gameSessions').findOne({
+          let gameSession = await db.collection('gameSessions').findOne({
             _id: new ObjectId(gameId)
           });
           
@@ -670,9 +749,15 @@ export default async function handler(req, res) {
             return res.status(400).json({ success: false, message: 'Not your turn' });
           }
           
+          // FIXED: Update timers before processing move
+          if (gameSession.status === 'active') {
+            gameSession = updateGameTimer(gameSession, gameSession.turn);
+          }
+          
           // Update game session
           const newTurn = gameSession.turn === 'w' ? 'b' : 'w';
           const updatedMoves = [...gameSession.moves, move];
+          const now = new Date();
           
           await db.collection('gameSessions').updateOne(
             { _id: new ObjectId(gameId) },
@@ -682,7 +767,9 @@ export default async function handler(req, res) {
                 fen: fen,
                 turn: newTurn,
                 lastMoveBy: user._id,
-                lastMoveAt: new Date()
+                lastMoveAt: now,
+                whiteTimeLeft: gameSession.whiteTimeLeft,
+                blackTimeLeft: gameSession.blackTimeLeft
               },
               $inc: { version: 1 }
             }
@@ -824,12 +911,29 @@ export default async function handler(req, res) {
         try {
           const { gameId } = req.query;
           
-          const gameSession = await db.collection('gameSessions').findOne({
+          let gameSession = await db.collection('gameSessions').findOne({
             _id: new ObjectId(gameId)
           });
           
           if (!gameSession) {
             return res.status(404).json({ success: false, message: 'Game not found' });
+          }
+          
+          // FIXED: Update timers when fetching game state
+          if (gameSession.status === 'active') {
+            gameSession = updateGameTimer(gameSession, gameSession.turn);
+            
+            // Save updated timer values
+            await db.collection('gameSessions').updateOne(
+              { _id: new ObjectId(gameId) },
+              { 
+                $set: {
+                  whiteTimeLeft: gameSession.whiteTimeLeft,
+                  blackTimeLeft: gameSession.blackTimeLeft,
+                  lastTimerUpdate: new Date()
+                }
+              }
+            );
           }
           
           // Get player info

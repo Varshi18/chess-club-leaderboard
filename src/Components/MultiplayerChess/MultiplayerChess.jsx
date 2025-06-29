@@ -225,7 +225,7 @@ const MultiplayerChess = ({
       updateGameStatus(newGame);
       
       // Check for game end
-      if (session.status === 'completed') {
+      if (session.status === 'completed' && session.result) {
         handleServerGameEnd(session.result, session.reason);
       }
       
@@ -238,8 +238,12 @@ const MultiplayerChess = ({
         version: session.version,
         whiteTime,
         blackTime,
-        status: session.status
+        status: session.status,
+        gameStarted: session.status === 'active'
       });
+      
+      // FIXED: Set game started based on server status
+      setGameStarted(session.status === 'active');
       
     } catch (error) {
       console.error('❌ Error loading server game state:', error);
@@ -276,7 +280,8 @@ const MultiplayerChess = ({
           serverTurn: serverState.turn,
           whiteTime: serverState.whiteTimeLeft,
           blackTime: serverState.blackTimeLeft,
-          playerColor: playerColorRef.current // Use persistent color
+          playerColor: playerColorRef.current, // Use persistent color
+          gameStatus: serverState.status
         });
         
         // FIXED: Don't change player color during sync - use persistent ref
@@ -903,6 +908,11 @@ const MultiplayerChess = ({
                   <div className={`text-xs mt-1 ${getSyncStatusColor()}`}>
                     ● {getSyncStatusText()} (v{gameStateVersion})
                   </div>
+                  {!gameStarted && gameSession?.status === 'waiting' && (
+                    <div className="text-xs mt-1 text-blue-600">
+                      ⏳ Waiting for both players to connect...
+                    </div>
+                  )}
                 </div>
               )}
             </motion.div>
