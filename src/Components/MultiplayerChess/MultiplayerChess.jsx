@@ -26,7 +26,7 @@ const MultiplayerChess = ({
   const [gameResult, setGameResult] = useState(null);
   const [showGameOver, setShowGameOver] = useState(false);
   const [timeControl, setTimeControl] = useState({ white: initialTimeControl, black: initialTimeControl });
-  const [activePlayer, setActivePlayer] = useState('white'); // Always start with white
+  const [activePlayer, setActivePlayer] = useState('white');
   const [isPaused, setIsPaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
   const [syncStatus, setSyncStatus] = useState('disconnected');
@@ -90,48 +90,54 @@ const MultiplayerChess = ({
         
         console.log('🎯 Game session loaded:', session);
         
-        // FIXED: Determine player color correctly using multiple ID formats
+        // FIXED: Determine player color using proper ID comparison
         const userId = user.id || user._id;
-        const userIdString = userId?.toString();
-        const whitePlayerIdString = session.whitePlayerId?.toString();
-        const blackPlayerIdString = session.blackPlayerId?.toString();
+        const whitePlayerId = session.whitePlayerId;
+        const blackPlayerId = session.blackPlayerId;
         
-        console.log('🔍 ID Comparison:', {
-          userId,
-          userIdString,
-          whitePlayerId: session.whitePlayerId,
-          whitePlayerIdString,
-          blackPlayerId: session.blackPlayerId,
-          blackPlayerIdString
+        // Convert to strings for comparison
+        const userIdStr = String(userId);
+        const whitePlayerIdStr = String(whitePlayerId);
+        const blackPlayerIdStr = String(blackPlayerId);
+        
+        console.log('🔍 Player ID comparison:', {
+          userId: userIdStr,
+          whitePlayerId: whitePlayerIdStr,
+          blackPlayerId: blackPlayerIdStr,
+          userUsername: user.username,
+          whitePlayerUsername: session.whitePlayer?.username,
+          blackPlayerUsername: session.blackPlayer?.username
         });
         
         let assignedColor;
-        if (userIdString === whitePlayerIdString) {
+        
+        // First try ID comparison
+        if (userIdStr === whitePlayerIdStr) {
           assignedColor = 'white';
-        } else if (userIdString === blackPlayerIdString) {
+          console.log('✅ Assigned WHITE by ID match');
+        } else if (userIdStr === blackPlayerIdStr) {
           assignedColor = 'black';
+          console.log('✅ Assigned BLACK by ID match');
         } else {
-          // Fallback: assign based on username if IDs don't match
-          if (session.whitePlayer?.username === user.username) {
+          // Fallback to username comparison
+          if (user.username === session.whitePlayer?.username) {
             assignedColor = 'white';
-          } else if (session.blackPlayer?.username === user.username) {
+            console.log('✅ Assigned WHITE by username match');
+          } else if (user.username === session.blackPlayer?.username) {
             assignedColor = 'black';
+            console.log('✅ Assigned BLACK by username match');
           } else {
-            console.warn('⚠️ Could not determine player color, defaulting to white');
+            // Last resort: assign based on who joined first
             assignedColor = 'white';
+            console.warn('⚠️ Could not determine color, defaulting to WHITE');
           }
         }
         
         setPlayerColor(assignedColor);
         
-        console.log('🎨 Player color assignment:', {
-          userId: userIdString,
-          whitePlayerId: whitePlayerIdString,
-          blackPlayerId: blackPlayerIdString,
+        console.log('🎨 Final color assignment:', {
           assignedColor,
-          whitePlayerUsername: session.whitePlayer?.username,
-          blackPlayerUsername: session.blackPlayer?.username,
-          currentUserUsername: user.username
+          isWhite: assignedColor === 'white'
         });
         
         // Load game state from server
@@ -184,22 +190,22 @@ const MultiplayerChess = ({
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
       
-      // FIXED: Set turn state from server - chess always starts with white
-      const serverTurn = session.turn || 'w'; // Default to white if no turn specified
+      // FIXED: Set turn state from server
+      const serverTurn = session.turn || 'w';
       const currentPlayer = serverTurn === 'w' ? 'white' : 'black';
       setActivePlayer(currentPlayer);
       setGameStateVersion(session.version || 0);
       
-      // FIXED: Set timer values
-      const whiteTime = session.whiteTimeLeft || session.timeControl || initialTimeControl;
-      const blackTime = session.blackTimeLeft || session.timeControl || initialTimeControl;
+      // FIXED: Set timer values from server
+      const whiteTime = session.whiteTimeLeft !== undefined ? session.whiteTimeLeft : session.timeControl || initialTimeControl;
+      const blackTime = session.blackTimeLeft !== undefined ? session.blackTimeLeft : session.timeControl || initialTimeControl;
       
       setTimeControl({
         white: whiteTime,
         black: blackTime
       });
       
-      // FIXED: Determine if it's player's turn correctly
+      // FIXED: Determine if it's player's turn
       const currentPlayerColor = playerColorOverride || playerColor;
       const isPlayerTurn = (serverTurn === 'w' && currentPlayerColor === 'white') || 
                           (serverTurn === 'b' && currentPlayerColor === 'black');
@@ -207,7 +213,7 @@ const MultiplayerChess = ({
       
       updateCapturedPieces(newGame.history({ verbose: true }));
       
-      // FIXED: Generate PGN with correct player names from server
+      // Generate PGN with correct player names from server
       const pgn = generatePGNFromServer(newGame, session);
       if (onPgnUpdate) {
         onPgnUpdate(pgn);
@@ -383,7 +389,7 @@ const MultiplayerChess = ({
     setCapturedPieces(captured);
   }, [trackCapturedPieces]);
 
-  // FIXED: Generate PGN from server data to ensure consistency
+  // Generate PGN from server data to ensure consistency
   const generatePGNFromServer = useCallback((gameInstance, session) => {
     const history = gameInstance.history();
     let pgn = '';
@@ -640,7 +646,7 @@ const MultiplayerChess = ({
     setGameResult(null);
     setShowGameOver(false);
     setTimeControl({ white: initialTimeControl, black: initialTimeControl });
-    setActivePlayer('white'); // Always start with white
+    setActivePlayer('white');
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(gameMode === 'practice' ? true : playerColor === 'white');
