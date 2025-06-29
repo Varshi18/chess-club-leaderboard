@@ -339,7 +339,7 @@ export default async function handler(req, res) {
 
           // Update game state
           const newMoves = [...(gameSession.moves || []), move];
-          const newTurn = currentTurn === 'w' ? 'b' : 'w';
+          const newTurn = currentTurn === 'w' ? 'b' : 'w'; // CRITICAL FIX: Switch turns properly
           const newVersion = (gameSession.version || 0) + 1;
 
           // Update timers (subtract time from current player)
@@ -353,7 +353,7 @@ export default async function handler(req, res) {
           };
 
           // CRITICAL FIX: Update the game session with proper turn switching
-          await db.collection('game_sessions').updateOne(
+          const updateResult = await db.collection('game_sessions').updateOne(
             { gameId },
             {
               $set: {
@@ -368,12 +368,17 @@ export default async function handler(req, res) {
             }
           );
 
+          if (updateResult.modifiedCount === 0) {
+            return res.status(500).json({ success: false, message: 'Failed to update game state' });
+          }
+
           console.log('✅ Move processed on server:', {
             move,
             oldTurn: currentTurn,
             newTurn,
             version: newVersion,
-            player: isWhitePlayer ? 'white' : 'black'
+            player: isWhitePlayer ? 'white' : 'black',
+            timeLeft: updatedTimeLeft
           });
 
           return res.status(200).json({ 

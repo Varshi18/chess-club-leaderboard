@@ -174,10 +174,6 @@ const MultiplayerChess = ({
       });
       
       // CRITICAL FIX: Update turn indicator based on server state and player color
-      const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
-                          (serverTurn === 'b' && playerColor === 'black');
-      
-      // For initialization, check against the assigned color from session
       const myColor = session.whitePlayerId === user.id ? 'white' : 'black';
       const isMyTurnNow = (serverTurn === 'w' && myColor === 'white') || 
                          (serverTurn === 'b' && myColor === 'black');
