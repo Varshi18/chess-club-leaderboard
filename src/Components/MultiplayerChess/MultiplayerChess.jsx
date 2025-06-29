@@ -41,6 +41,7 @@ const MultiplayerChess = ({
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
+  const playerColorRef = useRef('white'); // FIXED: Use ref to persist player color
 
   // Set up API
   const api = axios.create({
@@ -90,7 +91,7 @@ const MultiplayerChess = ({
         
         console.log('🎯 Game session loaded:', session);
         
-        // FIXED: Determine player color using proper ID comparison
+        // FIXED: Determine player color ONCE and persist it
         const userId = user.id || user._id;
         const whitePlayerId = session.whitePlayerId;
         const blackPlayerId = session.blackPlayerId;
@@ -133,9 +134,11 @@ const MultiplayerChess = ({
           }
         }
         
+        // FIXED: Set player color ONCE and store in ref to prevent changes
         setPlayerColor(assignedColor);
+        playerColorRef.current = assignedColor;
         
-        console.log('🎨 Final color assignment:', {
+        console.log('🎨 Final color assignment (PERMANENT):', {
           assignedColor,
           isWhite: assignedColor === 'white'
         });
@@ -196,17 +199,17 @@ const MultiplayerChess = ({
       setActivePlayer(currentPlayer);
       setGameStateVersion(session.version || 0);
       
-      // FIXED: Set timer values from server
-      const whiteTime = session.whiteTimeLeft !== undefined ? session.whiteTimeLeft : session.timeControl || initialTimeControl;
-      const blackTime = session.blackTimeLeft !== undefined ? session.blackTimeLeft : session.timeControl || initialTimeControl;
+      // FIXED: Set timer values from server with proper sync
+      const whiteTime = session.whiteTimeLeft !== undefined ? session.whiteTimeLeft : (session.timeControl || initialTimeControl);
+      const blackTime = session.blackTimeLeft !== undefined ? session.blackTimeLeft : (session.timeControl || initialTimeControl);
       
       setTimeControl({
         white: whiteTime,
         black: blackTime
       });
       
-      // FIXED: Determine if it's player's turn
-      const currentPlayerColor = playerColorOverride || playerColor;
+      // FIXED: Use persistent player color from ref
+      const currentPlayerColor = playerColorOverride || playerColorRef.current;
       const isPlayerTurn = (serverTurn === 'w' && currentPlayerColor === 'white') || 
                           (serverTurn === 'b' && currentPlayerColor === 'black');
       setIsMyTurn(isPlayerTurn);
@@ -272,11 +275,12 @@ const MultiplayerChess = ({
           localVersion: gameStateVersion,
           serverTurn: serverState.turn,
           whiteTime: serverState.whiteTimeLeft,
-          blackTime: serverState.blackTimeLeft
+          blackTime: serverState.blackTimeLeft,
+          playerColor: playerColorRef.current // Use persistent color
         });
         
-        // Update from server state
-        loadServerGameState(serverState);
+        // FIXED: Don't change player color during sync - use persistent ref
+        loadServerGameState(serverState, playerColorRef.current);
         setSyncStatus('synced');
         
         // Update version
@@ -443,9 +447,9 @@ const MultiplayerChess = ({
     if (gameMode === 'multiplayer' && (opponent || session)) {
       const now = new Date();
       const whiteUsername = session?.whitePlayer?.username || 
-                           (playerColor === 'white' ? user.username : opponent?.username);
+                           (playerColorRef.current === 'white' ? user.username : opponent?.username);
       const blackUsername = session?.blackPlayer?.username || 
-                           (playerColor === 'black' ? user.username : opponent?.username);
+                           (playerColorRef.current === 'black' ? user.username : opponent?.username);
       
       pgn += `[Event "Chess Club Game"]\n`;
       pgn += `[Site "IIT Dharwad Chess Club"]\n`;
@@ -490,7 +494,7 @@ const MultiplayerChess = ({
     }
     
     return pgn.trim();
-  }, [gameMode, opponent, playerColor, user, timeControl]);
+  }, [gameMode, opponent, user, timeControl]);
 
   const makeMove = useCallback(async (sourceSquare, targetSquare, piece) => {
     // Check if move is allowed
@@ -503,7 +507,7 @@ const MultiplayerChess = ({
       if (!isMyTurn) {
         console.log('⏸️ Not your turn:', { 
           currentTurn: game.turn(), 
-          playerColor, 
+          playerColor: playerColorRef.current, // Use persistent color
           isMyTurn,
           activePlayer
         });
@@ -592,13 +596,18 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId, activePlayer]);
+  }, [game, gameMode, gameStarted, isMyTurn, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId, activePlayer]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
     if (gameMode === 'multiplayer') {
       if (!gameStarted || !isMyTurn) {
-        console.log('⏸️ Not your turn or game not started:', { gameStarted, isMyTurn, playerColor, activePlayer });
+        console.log('⏸️ Not your turn or game not started:', { 
+          gameStarted, 
+          isMyTurn, 
+          playerColor: playerColorRef.current, 
+          activePlayer 
+        });
         return;
       }
     }
@@ -629,7 +638,7 @@ const MultiplayerChess = ({
         setPossibleMoves(moves.map(move => move.to));
       }
     }
-  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, playerColor, activePlayer]);
+  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, activePlayer]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
     return makeMove(sourceSquare, targetSquare, piece);
@@ -649,9 +658,15 @@ const MultiplayerChess = ({
     setActivePlayer('white');
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
-    setIsMyTurn(gameMode === 'practice' ? true : playerColor === 'white');
+    setIsMyTurn(gameMode === 'practice' ? true : playerColorRef.current === 'white');
     setGameStateVersion(0);
     isInitializedRef.current = false;
+    
+    // Reset player color ref for new games
+    if (gameMode === 'practice') {
+      playerColorRef.current = 'white';
+      setPlayerColor('white');
+    }
     
     // Stop sync
     if (syncIntervalRef.current) {
@@ -663,7 +678,7 @@ const MultiplayerChess = ({
     if (onPgnUpdate) {
       onPgnUpdate('');
     }
-  }, [updateGameStatus, gameMode, onPgnUpdate, initialTimeControl, playerColor]);
+  }, [updateGameStatus, gameMode, onPgnUpdate, initialTimeControl]);
 
   const handleTimeUp = useCallback((player) => {
     const winner = player === 'white' ? 'Black' : 'White';
@@ -679,7 +694,7 @@ const MultiplayerChess = ({
 
   const handleResign = useCallback(() => {
     if (gameMode === 'multiplayer') {
-      const winner = playerColor === 'white' ? 'Black' : 'White';
+      const winner = playerColorRef.current === 'white' ? 'Black' : 'White';
       const result = { winner, reason: 'resignation' };
       endGameOnServer(result);
     }
@@ -687,7 +702,7 @@ const MultiplayerChess = ({
     if (onGameEnd) {
       onGameEnd();
     }
-  }, [gameMode, playerColor, onGameEnd]);
+  }, [gameMode, onGameEnd]);
 
   const offerDraw = useCallback(() => {
     if (gameMode === 'multiplayer') {
@@ -788,25 +803,25 @@ const MultiplayerChess = ({
               {/* FIXED: Show opponent's timer on top */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl[playerColor === 'white' ? 'black' : 'white']}
-                  isActive={activePlayer !== playerColor && !isPaused && gameStarted}
+                  initialTime={timeControl[playerColorRef.current === 'white' ? 'black' : 'white']}
+                  isActive={activePlayer !== playerColorRef.current && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
-                  player={playerColor === 'white' ? 'black' : 'white'}
+                  player={playerColorRef.current === 'white' ? 'black' : 'white'}
                   isPaused={isPaused}
                   serverControlled={gameMode === 'multiplayer'}
-                  currentTime={timeControl[playerColor === 'white' ? 'black' : 'white']}
+                  currentTime={timeControl[playerColorRef.current === 'white' ? 'black' : 'white']}
                 />
               </div>
               {/* FIXED: Show player's timer on bottom */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
-                  initialTime={timeControl[playerColor]}
-                  isActive={activePlayer === playerColor && !isPaused && gameStarted}
+                  initialTime={timeControl[playerColorRef.current]}
+                  isActive={activePlayer === playerColorRef.current && !isPaused && gameStarted}
                   onTimeUp={handleTimeUp}
-                  player={playerColor}
+                  player={playerColorRef.current}
                   isPaused={isPaused}
                   serverControlled={gameMode === 'multiplayer'}
-                  currentTime={timeControl[playerColor]}
+                  currentTime={timeControl[playerColorRef.current]}
                 />
               </div>
             </div>
@@ -827,7 +842,7 @@ const MultiplayerChess = ({
                 onPieceDrop={onPieceDrop}
                 onSquareClick={onSquareClick}
                 customSquareStyles={customSquareStyles}
-                boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
+                boardOrientation={gameMode === 'multiplayer' ? playerColorRef.current : 'white'}
                 animationDuration={200}
                 arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn))}
                 customBoardStyle={{
@@ -880,7 +895,7 @@ const MultiplayerChess = ({
                       gameSession.blackPlayer?.chessRating : 
                       gameSession.whitePlayer?.chessRating}
                   </div>
-                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">You are: {playerColor}</div>
+                  <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">You are: {playerColorRef.current}</div>
                   <div className="text-xs lg:text-sm text-gray-500 dark:text-gray-400">Time: {Math.floor(initialTimeControl / 60)} min</div>
                   <div className={`text-xs lg:text-sm mt-1 font-medium ${isMyTurn ? 'text-green-600' : 'text-orange-600'}`}>
                     {isMyTurn ? '● Your turn' : '● Opponent\'s turn'}
