@@ -40,7 +40,6 @@ const MultiplayerChess = ({
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
   const lastSyncTimeRef = useRef(Date.now());
-  const lastMoveTimeRef = useRef(Date.now());
 
   // Set up API
   const api = axios.create({
@@ -174,14 +173,20 @@ const MultiplayerChess = ({
         black: blackTime
       });
       
-      // Update turn indicator based on server state and player color
+      // CRITICAL FIX: Update turn indicator based on server state and player color
       const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
                           (serverTurn === 'b' && playerColor === 'black');
-      setIsMyTurn(isPlayerTurn);
+      
+      // For initialization, check against the assigned color from session
+      const myColor = session.whitePlayerId === user.id ? 'white' : 'black';
+      const isMyTurnNow = (serverTurn === 'w' && myColor === 'white') || 
+                         (serverTurn === 'b' && myColor === 'black');
+      
+      setIsMyTurn(isMyTurnNow);
       
       updateCapturedPieces(newGame.history({ verbose: true }));
       
-      // Update PGN
+      // Update PGN - FIXED: Generate complete PGN from all moves
       const pgn = generatePGN(newGame, session);
       if (onPgnUpdate) {
         onPgnUpdate(pgn);
@@ -197,12 +202,13 @@ const MultiplayerChess = ({
       console.log('✅ Server game state loaded:', {
         moves: session.moves?.length || 0,
         turn: serverTurn,
-        isMyTurn: isPlayerTurn,
+        isMyTurn: isMyTurnNow,
+        myColor,
         version: session.version,
         whiteTime: whiteTime,
         blackTime: blackTime,
         status: session.status,
-        playerColor
+        playerColor: myColor
       });
       
     } catch (error) {
@@ -370,6 +376,7 @@ const MultiplayerChess = ({
   }, [trackCapturedPieces]);
 
   const generatePGN = useCallback((gameInstance, session = null) => {
+    // FIXED: Generate complete PGN from all moves in the game
     const history = gameInstance.history();
     let pgn = '';
     
@@ -388,10 +395,10 @@ const MultiplayerChess = ({
       pgn += `[White "${whiteUsername}"]\n`;
       pgn += `[Black "${blackUsername}"]\n`;
       pgn += `[Result "*"]\n`;
-      pgn += `[TimeControl "${timeControl.white}"]\n\n`;
+      pgn += `[TimeControl "${initialTimeControl}"]\n\n`;
     }
     
-    // Add moves
+    // Add ALL moves (not just the last one)
     for (let i = 0; i < history.length; i += 2) {
       const moveNumber = Math.floor(i / 2) + 1;
       pgn += `${moveNumber}. ${history[i]}`;
@@ -411,7 +418,7 @@ const MultiplayerChess = ({
     }
     
     return pgn.trim();
-  }, [gameMode, opponent, playerColor, user, timeControl]);
+  }, [gameMode, opponent, playerColor, user, initialTimeControl]);
 
   const makeMove = useCallback(async (sourceSquare, targetSquare, piece) => {
     // Check if move is allowed
@@ -476,7 +483,6 @@ const MultiplayerChess = ({
         if (gameMode === 'multiplayer' && gameId) {
           try {
             setSyncStatus('syncing');
-            lastMoveTimeRef.current = Date.now();
             
             const response = await api.patch('/?endpoint=game-sessions&action=move', {
               gameId,
@@ -495,8 +501,8 @@ const MultiplayerChess = ({
               setSelectedSquare(null);
               setPossibleMoves([]);
               
-              // Temporarily set turn to false to prevent double moves
-              setIsMyTurn(false);
+              // CRITICAL FIX: Don't set isMyTurn to false here - let server sync handle it
+              // The server will update the turn state and we'll get it via sync
               
               // Server will update game state via sync
               setSyncStatus('connected');

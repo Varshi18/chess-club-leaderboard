@@ -271,10 +271,28 @@ export default async function handler(req, res) {
           const hasUpdates = currentVersion > clientVersion;
           
           if (hasUpdates) {
+            // Populate player data for sync
+            const whitePlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.whitePlayerId) });
+            const blackPlayer = await db.collection('users').findOne({ _id: toObjectId(gameSession.blackPlayerId) });
+
+            const sessionWithPlayers = {
+              ...gameSession,
+              whitePlayer: {
+                id: whitePlayer._id,
+                username: whitePlayer.username,
+                chessRating: whitePlayer.chessRating || 1200
+              },
+              blackPlayer: {
+                id: blackPlayer._id,
+                username: blackPlayer.username,
+                chessRating: blackPlayer.chessRating || 1200
+              }
+            };
+
             return res.status(200).json({ 
               success: true, 
               hasUpdates: true, 
-              gameState: gameSession 
+              gameState: sessionWithPlayers 
             });
           }
 
@@ -334,13 +352,14 @@ export default async function handler(req, res) {
               : (gameSession.blackTimeLeft || gameSession.timeControl)
           };
 
+          // CRITICAL FIX: Update the game session with proper turn switching
           await db.collection('game_sessions').updateOne(
             { gameId },
             {
               $set: {
                 moves: newMoves,
                 fen,
-                turn: newTurn,
+                turn: newTurn, // This switches the turn properly
                 version: newVersion,
                 lastMoveBy: decoded.userId,
                 lastMoveAt: now,
@@ -348,6 +367,14 @@ export default async function handler(req, res) {
               }
             }
           );
+
+          console.log('✅ Move processed on server:', {
+            move,
+            oldTurn: currentTurn,
+            newTurn,
+            version: newVersion,
+            player: isWhitePlayer ? 'white' : 'black'
+          });
 
           return res.status(200).json({ 
             success: true, 
@@ -530,7 +557,7 @@ export default async function handler(req, res) {
               whiteTimeLeft: challenge.timeControl,
               blackTimeLeft: challenge.timeControl,
               moves: [],
-              turn: 'w',
+              turn: 'w', // White always starts
               status: 'active',
               version: 0,
               createdAt: new Date()
