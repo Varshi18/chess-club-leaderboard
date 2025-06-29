@@ -12,21 +12,14 @@ const GameTimer = ({
 }) => {
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
-  const lastServerTimeRef = useRef(null);
 
-  // FIXED: Simplified timer logic - only update when server time changes significantly
+  // FIXED: Stable timer updates - only update from server when there's a significant change
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
       const newTime = Math.max(0, Math.floor(currentTime));
-      
-      // Only update if there's a significant difference (more than 2 seconds) to prevent jumping
-      if (lastServerTimeRef.current === null || Math.abs(timeLeft - newTime) > 2) {
-        setTimeLeft(newTime);
-        lastServerTimeRef.current = newTime;
-      }
+      setTimeLeft(newTime);
     } else {
       setTimeLeft(initialTime);
-      lastServerTimeRef.current = null;
     }
   }, [currentTime, serverControlled, initialTime]);
 
@@ -57,7 +50,7 @@ const GameTimer = ({
         intervalRef.current = null;
       }
     };
-  }, [isActive, isPaused, serverControlled, onTimeUp, player]);
+  }, [isActive, isPaused, serverControlled, timeLeft, onTimeUp, player]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -57,19 +57,17 @@ function calculateRatingChange(playerRating, opponentRating, result) {
   return Math.round(K * (actualScore - expectedScore));
 }
 
-// FIXED: Helper function to update timer based on game state
-function updateGameTimer(gameSession, currentTurn) {
+// FIXED: Simplified timer update - only update when moves are made
+function updateGameTimerOnMove(gameSession, movingPlayer) {
   const now = new Date();
-  const lastMoveTime = gameSession.lastMoveAt || gameSession.createdAt;
+  const lastMoveTime = gameSession.lastMoveAt || gameSession.gameStartTime || gameSession.createdAt;
   const timeSinceLastMove = Math.floor((now - lastMoveTime) / 1000);
   
   // Only deduct time if the game is active and not paused
-  if (gameSession.status === 'active' && !gameSession.isPaused) {
-    if (currentTurn === 'w') {
-      // White's turn - deduct time from white
+  if (gameSession.status === 'active' && !gameSession.isPaused && timeSinceLastMove > 0) {
+    if (movingPlayer === 'white') {
       gameSession.whiteTimeLeft = Math.max(0, gameSession.whiteTimeLeft - timeSinceLastMove);
     } else {
-      // Black's turn - deduct time from black
       gameSession.blackTimeLeft = Math.max(0, gameSession.blackTimeLeft - timeSinceLastMove);
     }
   }
@@ -540,6 +538,7 @@ export default async function handler(req, res) {
               gameStartTime: null, // Will be set when both players connect
               lastMoveAt: null,
               isPaused: false,
+              pendingRequests: [], // FIXED: Track draw/pause requests
               createdAt: new Date()
             };
             
@@ -618,7 +617,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // FIXED: Game sessions endpoints with proper timer synchronization
+    // FIXED: Game sessions endpoints with proper timer synchronization and request system
     if (endpoint === 'game-sessions') {
       const user = await getUserFromToken(req);
       if (!user) {
@@ -673,23 +672,6 @@ export default async function handler(req, res) {
             gameSession = await db.collection('gameSessions').findOne({
               _id: new ObjectId(gameId)
             });
-          }
-          
-          // FIXED: Update timers based on current game state
-          if (gameSession.status === 'active') {
-            gameSession = updateGameTimer(gameSession, gameSession.turn);
-            
-            // Save updated timer values
-            await db.collection('gameSessions').updateOne(
-              { _id: new ObjectId(gameId) },
-              { 
-                $set: {
-                  whiteTimeLeft: gameSession.whiteTimeLeft,
-                  blackTimeLeft: gameSession.blackTimeLeft,
-                  lastTimerUpdate: new Date()
-                }
-              }
-            );
           }
           
           const hasUpdates = gameSession.version > parseInt(lastVersion || 0);
@@ -749,10 +731,9 @@ export default async function handler(req, res) {
             return res.status(400).json({ success: false, message: 'Not your turn' });
           }
           
-          // FIXED: Update timers before processing move
-          if (gameSession.status === 'active') {
-            gameSession = updateGameTimer(gameSession, gameSession.turn);
-          }
+          // FIXED: Update timer for the player who just moved
+          const movingPlayer = gameSession.turn === 'w' ? 'white' : 'black';
+          gameSession = updateGameTimerOnMove(gameSession, movingPlayer);
           
           // Update game session
           const newTurn = gameSession.turn === 'w' ? 'b' : 'w';
@@ -783,6 +764,123 @@ export default async function handler(req, res) {
         } catch (error) {
           console.error('Game move error:', error);
           return res.status(500).json({ success: false, message: 'Failed to make move' });
+        }
+      }
+      
+      // FIXED: Add request system for draw offers and pause requests
+      if (action === 'request' && req.method === 'POST') {
+        try {
+          const { gameId, requestType } = req.body; // requestType: 'draw' or 'pause'
+          
+          if (!gameId || !requestType) {
+            return res.status(400).json({ success: false, message: 'Missing required fields' });
+          }
+          
+          const gameSession = await db.collection('gameSessions').findOne({
+            _id: new ObjectId(gameId)
+          });
+          
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game not found' });
+          }
+          
+          // Check if player is in this game
+          const isWhitePlayer = gameSession.whitePlayerId.equals(user._id);
+          const isBlackPlayer = gameSession.blackPlayerId.equals(user._id);
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not authorized for this game' });
+          }
+          
+          // Check if request already exists
+          const existingRequest = gameSession.pendingRequests?.find(
+            req => req.type === requestType && req.fromPlayer.equals(user._id)
+          );
+          
+          if (existingRequest) {
+            return res.status(400).json({ success: false, message: `${requestType} request already sent` });
+          }
+          
+          // Add request to pending requests
+          const newRequest = {
+            type: requestType,
+            fromPlayer: user._id,
+            createdAt: new Date()
+          };
+          
+          await db.collection('gameSessions').updateOne(
+            { _id: new ObjectId(gameId) },
+            { 
+              $push: { pendingRequests: newRequest },
+              $inc: { version: 1 }
+            }
+          );
+          
+          return res.json({ success: true, message: `${requestType} request sent` });
+        } catch (error) {
+          console.error('Request error:', error);
+          return res.status(500).json({ success: false, message: 'Failed to send request' });
+        }
+      }
+      
+      // FIXED: Handle request responses
+      if (action === 'respond-request' && req.method === 'PATCH') {
+        try {
+          const { gameId, requestType, response } = req.body; // response: 'accept' or 'decline'
+          
+          if (!gameId || !requestType || !response) {
+            return res.status(400).json({ success: false, message: 'Missing required fields' });
+          }
+          
+          let gameSession = await db.collection('gameSessions').findOne({
+            _id: new ObjectId(gameId)
+          });
+          
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game not found' });
+          }
+          
+          // Find the request
+          const requestIndex = gameSession.pendingRequests?.findIndex(
+            req => req.type === requestType && !req.fromPlayer.equals(user._id)
+          );
+          
+          if (requestIndex === -1) {
+            return res.status(404).json({ success: false, message: 'Request not found' });
+          }
+          
+          // Remove the request from pending
+          const updatedRequests = [...(gameSession.pendingRequests || [])];
+          updatedRequests.splice(requestIndex, 1);
+          
+          const updateData = {
+            pendingRequests: updatedRequests,
+            version: gameSession.version + 1
+          };
+          
+          if (response === 'accept') {
+            if (requestType === 'draw') {
+              // End game as draw
+              updateData.status = 'completed';
+              updateData.result = '1/2-1/2';
+              updateData.reason = 'agreement';
+              updateData.endedAt = new Date();
+            } else if (requestType === 'pause') {
+              // Pause the game
+              updateData.isPaused = true;
+              updateData.pausedAt = new Date();
+            }
+          }
+          
+          await db.collection('gameSessions').updateOne(
+            { _id: new ObjectId(gameId) },
+            { $set: updateData }
+          );
+          
+          return res.json({ success: true, message: `Request ${response}ed` });
+        } catch (error) {
+          console.error('Request response error:', error);
+          return res.status(500).json({ success: false, message: 'Failed to respond to request' });
         }
       }
       
@@ -917,23 +1015,6 @@ export default async function handler(req, res) {
           
           if (!gameSession) {
             return res.status(404).json({ success: false, message: 'Game not found' });
-          }
-          
-          // FIXED: Update timers when fetching game state
-          if (gameSession.status === 'active') {
-            gameSession = updateGameTimer(gameSession, gameSession.turn);
-            
-            // Save updated timer values
-            await db.collection('gameSessions').updateOne(
-              { _id: new ObjectId(gameId) },
-              { 
-                $set: {
-                  whiteTimeLeft: gameSession.whiteTimeLeft,
-                  blackTimeLeft: gameSession.blackTimeLeft,
-                  lastTimerUpdate: new Date()
-                }
-              }
-            );
           }
           
           // Get player info

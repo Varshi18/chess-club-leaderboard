@@ -33,10 +33,7 @@ const MultiplayerChess = ({
   const [isMyTurn, setIsMyTurn] = useState(gameMode === 'practice' ? true : false);
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
-  const [showDrawOffer, setShowDrawOffer] = useState(false);
-  const [drawOffered, setDrawOffered] = useState(false);
-  const [pauseRequested, setPauseRequested] = useState(false);
-  const [showPauseRequest, setShowPauseRequest] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
   
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
@@ -199,7 +196,7 @@ const MultiplayerChess = ({
       setActivePlayer(currentPlayer);
       setGameStateVersion(session.version || 0);
       
-      // FIXED: Set timer values from server with proper sync
+      // FIXED: Set timer values from server - no local timer updates
       const whiteTime = session.whiteTimeLeft !== undefined ? session.whiteTimeLeft : (session.timeControl || initialTimeControl);
       const blackTime = session.blackTimeLeft !== undefined ? session.blackTimeLeft : (session.timeControl || initialTimeControl);
       
@@ -213,6 +210,12 @@ const MultiplayerChess = ({
       const isPlayerTurn = (serverTurn === 'w' && currentPlayerColor === 'white') || 
                           (serverTurn === 'b' && currentPlayerColor === 'black');
       setIsMyTurn(isPlayerTurn);
+      
+      // FIXED: Set pause state from server
+      setIsPaused(session.isPaused || false);
+      
+      // FIXED: Load pending requests
+      setPendingRequests(session.pendingRequests || []);
       
       updateCapturedPieces(newGame.history({ verbose: true }));
       
@@ -239,7 +242,9 @@ const MultiplayerChess = ({
         whiteTime,
         blackTime,
         status: session.status,
-        gameStarted: session.status === 'active'
+        gameStarted: session.status === 'active',
+        isPaused: session.isPaused,
+        pendingRequests: session.pendingRequests?.length || 0
       });
       
       // FIXED: Set game started based on server status
@@ -255,12 +260,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
-    // Sync every 1 second for real-time updates
+    // Sync every 2 seconds for real-time updates
     syncIntervalRef.current = setInterval(() => {
       syncWithServer();
-    }, 1000);
+    }, 2000);
     
-    console.log('🔄 Started server sync (1s interval)');
+    console.log('🔄 Started server sync (2s interval)');
   };
 
   const syncWithServer = async () => {
@@ -665,6 +670,7 @@ const MultiplayerChess = ({
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(gameMode === 'practice' ? true : playerColorRef.current === 'white');
     setGameStateVersion(0);
+    setPendingRequests([]);
     isInitializedRef.current = false;
     
     // Reset player color ref for new games
@@ -709,37 +715,72 @@ const MultiplayerChess = ({
     }
   }, [gameMode, onGameEnd]);
 
-  const offerDraw = useCallback(() => {
-    if (gameMode === 'multiplayer') {
-      setDrawOffered(true);
-      alert('Draw offer sent to opponent');
+  // FIXED: Send draw offer request to server
+  const offerDraw = useCallback(async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.post('/?endpoint=game-sessions&action=request', {
+          gameId,
+          requestType: 'draw'
+        });
+        
+        if (response.data.success) {
+          alert('Draw offer sent to opponent');
+        } else {
+          alert('Failed to send draw offer: ' + response.data.message);
+        }
+      } catch (error) {
+        console.error('Error sending draw offer:', error);
+        alert('Failed to send draw offer');
+      }
     }
-  }, [gameMode]);
+  }, [gameMode, gameId]);
 
-  const acceptDraw = useCallback(() => {
-    const result = { winner: null, reason: 'agreement' };
-    if (gameMode === 'multiplayer') {
-      endGameOnServer(result);
-    } else {
-      setGameResult(result);
-      setShowGameOver(true);
-    }
-    setShowDrawOffer(false);
-  }, [gameMode]);
-
-  const requestPause = useCallback(() => {
-    if (gameMode === 'multiplayer') {
-      setPauseRequested(true);
-      alert('Pause request sent to opponent');
+  // FIXED: Send pause request to server
+  const requestPause = useCallback(async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.post('/?endpoint=game-sessions&action=request', {
+          gameId,
+          requestType: 'pause'
+        });
+        
+        if (response.data.success) {
+          alert('Pause request sent to opponent');
+        } else {
+          alert('Failed to send pause request: ' + response.data.message);
+        }
+      } catch (error) {
+        console.error('Error sending pause request:', error);
+        alert('Failed to send pause request');
+      }
     } else {
       setIsPaused(!isPaused);
     }
-  }, [gameMode, isPaused]);
+  }, [gameMode, gameId, isPaused]);
 
-  const acceptPause = useCallback(() => {
-    setIsPaused(true);
-    setShowPauseRequest(false);
-  }, []);
+  // FIXED: Respond to draw/pause requests
+  const respondToRequest = useCallback(async (requestType, response) => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const apiResponse = await api.patch('/?endpoint=game-sessions&action=respond-request', {
+          gameId,
+          requestType,
+          response
+        });
+        
+        if (apiResponse.data.success) {
+          // Force sync to get updated game state
+          setTimeout(() => syncWithServer(), 100);
+        } else {
+          alert('Failed to respond to request: ' + apiResponse.data.message);
+        }
+      } catch (error) {
+        console.error('Error responding to request:', error);
+        alert('Failed to respond to request');
+      }
+    }
+  }, [gameMode, gameId]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -795,6 +836,11 @@ const MultiplayerChess = ({
       default: return 'Disconnected';
     }
   };
+
+  // FIXED: Get pending requests for current user
+  const myPendingRequests = pendingRequests.filter(req => 
+    !req.fromPlayer.equals ? req.fromPlayer !== user._id : String(req.fromPlayer) !== String(user._id)
+  );
 
   return (
     <div className="w-full max-w-7xl mx-auto">
@@ -917,6 +963,39 @@ const MultiplayerChess = ({
               )}
             </motion.div>
 
+            {/* FIXED: Pending Requests */}
+            {myPendingRequests.length > 0 && (
+              <motion.div 
+                className="bg-yellow-50/90 dark:bg-yellow-900/20 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-yellow-200 dark:border-yellow-800"
+                initial={{ x: 50, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                transition={{ duration: 0.5 }}
+              >
+                <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Pending Requests</h3>
+                {myPendingRequests.map((request, index) => (
+                  <div key={index} className="mb-3 p-3 bg-white/50 dark:bg-gray-700/50 rounded-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                      Opponent requests: <strong>{request.type}</strong>
+                    </p>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => respondToRequest(request.type, 'accept')}
+                        className="flex-1 px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        onClick={() => respondToRequest(request.type, 'decline')}
+                        className="flex-1 px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                      >
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </motion.div>
+            )}
+
             {/* Controls */}
             <motion.div 
               className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
@@ -950,22 +1029,20 @@ const MultiplayerChess = ({
                     
                     <motion.button
                       onClick={offerDraw}
-                      disabled={drawOffered}
-                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
-                      {drawOffered ? 'Draw Offered' : 'Offer Draw'}
+                      Offer Draw
                     </motion.button>
                     
                     <motion.button
                       onClick={requestPause}
-                      disabled={pauseRequested}
-                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 text-sm lg:text-base"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                     >
-                      {isPaused ? 'Resume' : pauseRequested ? 'Pause Requested' : 'Request Pause'}
+                      {isPaused ? 'Resume' : 'Request Pause'}
                     </motion.button>
                   </>
                 )}
@@ -982,7 +1059,11 @@ const MultiplayerChess = ({
                     </motion.button>
                     
                     <motion.button
-                      onClick={acceptDraw}
+                      onClick={() => {
+                        const result = { winner: null, reason: 'agreement' };
+                        setGameResult(result);
+                        setShowGameOver(true);
+                      }}
                       className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -1091,100 +1172,6 @@ const MultiplayerChess = ({
           </div>
         </div>
       </div>
-
-      {/* Draw Offer Modal */}
-      <AnimatePresence>
-        {showDrawOffer && (
-          <motion.div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.7, opacity: 0 }}
-            >
-              <div className="text-center">
-                <div className="text-4xl mb-4">🤝</div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-                  Draw Offer
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Your opponent has offered a draw. Do you accept?
-                </p>
-                <div className="flex space-x-3">
-                  <motion.button
-                    onClick={acceptDraw}
-                    className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Accept
-                  </motion.button>
-                  <motion.button
-                    onClick={() => setShowDrawOffer(false)}
-                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Decline
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Pause Request Modal */}
-      <AnimatePresence>
-        {showPauseRequest && (
-          <motion.div
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <motion.div
-              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.7, opacity: 0 }}
-            >
-              <div className="text-center">
-                <div className="text-4xl mb-4">⏸️</div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-                  Pause Request
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Your opponent has requested to pause the game. Do you agree?
-                </p>
-                <div className="flex space-x-3">
-                  <motion.button
-                    onClick={acceptPause}
-                    className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Accept
-                  </motion.button>
-                  <motion.button
-                    onClick={() => setShowPauseRequest(false)}
-                    className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    Decline
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Game Over Modal */}
       <AnimatePresence>
