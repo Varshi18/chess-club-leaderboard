@@ -13,11 +13,22 @@ const GameTimer = ({
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
   const lastUpdateRef = useRef(Date.now());
+  const isActiveRef = useRef(isActive);
+  const isPausedRef = useRef(isPaused);
+
+  // Update refs when props change
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    isPausedRef.current = isPaused;
+  }, [isActive, isPaused]);
 
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
-      // Use server time for multiplayer games
-      setTimeLeft(Math.max(0, currentTime));
+      // Use server time for multiplayer games - prevent flickering
+      const newTime = Math.max(0, Math.floor(currentTime));
+      if (Math.abs(timeLeft - newTime) > 1) { // Only update if difference is significant
+        setTimeLeft(newTime);
+      }
     } else {
       // Use initial time for practice games
       setTimeLeft(initialTime);
@@ -32,25 +43,28 @@ const GameTimer = ({
     }
     
     // Only run local timer for practice mode (non-server-controlled)
-    if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
+    if (!serverControlled && timeLeft > 0) {
       lastUpdateRef.current = Date.now();
       
-      // FIXED: Update every second for real-time countdown
+      // FIXED: Stable timer that doesn't flicker
       intervalRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
-        
-        if (elapsed >= 1) {
-          setTimeLeft(prevTime => {
-            const newTime = Math.max(0, prevTime - elapsed);
-            if (newTime <= 0 && onTimeUp) {
-              onTimeUp(player);
-            }
-            return newTime;
-          });
-          lastUpdateRef.current = now;
+        // Use refs to get current values without causing re-renders
+        if (isActiveRef.current && !isPausedRef.current) {
+          const now = Date.now();
+          const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
+          
+          if (elapsed >= 1) {
+            setTimeLeft(prevTime => {
+              const newTime = Math.max(0, prevTime - elapsed);
+              if (newTime <= 0 && onTimeUp) {
+                onTimeUp(player);
+              }
+              return newTime;
+            });
+            lastUpdateRef.current = now;
+          }
         }
-      }, 1000); // FIXED: Update every 1000ms (1 second) for real-time countdown
+      }, 1000); // Update every second for real-time countdown
     }
     
     return () => {
@@ -59,7 +73,7 @@ const GameTimer = ({
         intervalRef.current = null;
       }
     };
-  }, [isActive, isPaused, timeLeft, onTimeUp, player, serverControlled]);
+  }, [serverControlled, timeLeft, onTimeUp, player]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -114,8 +128,7 @@ const GameTimer = ({
         <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
           <motion.div
             className={`h-full bg-gradient-to-r ${getTimerColor()}`}
-            initial={{ width: '100%' }}
-            animate={{ width: `${progress}%` }}
+            style={{ width: `${progress}%` }}
             transition={{ duration: 0.5 }}
           />
         </div>

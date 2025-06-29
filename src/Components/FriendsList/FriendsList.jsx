@@ -94,15 +94,24 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.get('/?endpoint=challenges&action=sent');
       if (response.data.success) {
         const challenges = response.data.challenges;
-        setSentChallenges(challenges);
+        
+        // FIXED: Filter out completed/accepted challenges to prevent them from showing
+        const activeChallenges = challenges.filter(c => c.status === 'pending');
+        setSentChallenges(activeChallenges);
         
         // Check for accepted challenges and redirect both players
         const acceptedChallenge = challenges.find(c => c.status === 'accepted' && c.gameId);
         if (acceptedChallenge && onChallengePlayer) {
           console.log('🎯 Challenge accepted! Redirecting to game:', acceptedChallenge);
           
-          // Remove the accepted challenge from sent challenges
-          setSentChallenges(prev => prev.filter(c => c.id !== acceptedChallenge.id));
+          // FIXED: Mark challenge as completed on server to prevent re-triggering
+          try {
+            await api.patch('/?endpoint=challenges&action=complete', {
+              challengeId: acceptedChallenge.id
+            });
+          } catch (error) {
+            console.error('Error marking challenge as completed:', error);
+          }
           
           // Redirect to game with proper game data
           onChallengePlayer({
@@ -676,11 +685,6 @@ const FriendsList = ({ onChallengePlayer }) => {
                           >
                             Cancel
                           </motion.button>
-                        )}
-                        {challenge.status === 'accepted' && (
-                          <span className="flex-1 px-3 py-2 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 text-sm font-medium rounded-lg text-center">
-                            Accepted ✓
-                          </span>
                         )}
                       </div>
                     </motion.div>

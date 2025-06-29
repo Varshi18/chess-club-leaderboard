@@ -63,6 +63,12 @@ const Navbar = () => {
     ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : [])
   ];
 
+  // FIXED: Truncate username to prevent overflow
+  const truncateUsername = (username) => {
+    if (!username) return '';
+    return username.length > 12 ? username.substring(0, 12) + '...' : username;
+  };
+
   return (
     <>
       <nav className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md fixed top-0 left-0 w-full flex justify-between items-center py-3 px-4 lg:px-8 shadow-lg border-b border-gray-200 dark:border-gray-700 z-50 transition-all duration-300">
@@ -72,13 +78,14 @@ const Navbar = () => {
             <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
               IIT Dharwad
             </span>
-            <span className="ml-2 text-gray-900 dark:text-white">Chess Club</span>
+            <span className="ml-2 text-gray-900 dark:text-white hidden sm:inline">Chess Club</span>
+            <span className="ml-2 text-gray-900 dark:text-white sm:hidden">Chess</span>
           </Link>
         </div>
         
         {/* Desktop Menu */}
-        <div className="hidden lg:flex items-center space-x-6">
-          <ul className="flex space-x-4">
+        <div className="hidden lg:flex items-center space-x-4 xl:space-x-6">
+          <ul className="flex space-x-3 xl:space-x-4">
             {navigationItems.map(({ path, label }) => (
               <li key={path}>
                 <Link
@@ -98,21 +105,26 @@ const Navbar = () => {
             ))}
           </ul>
           
-          {/* Desktop User Menu */}
+          {/* Desktop User Menu - FIXED: Better layout for long usernames */}
           <div className="flex items-center space-x-3">
             {isAuthenticated ? (
               <div className="flex items-center space-x-3">
-                <div className="text-sm text-gray-700 dark:text-gray-300">
-                  Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
+                <div className="text-sm text-gray-700 dark:text-gray-300 max-w-[200px]">
+                  <div className="flex items-center">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Welcome,</span>
+                    <span className="font-semibold text-yellow-600 dark:text-yellow-400 truncate" title={user?.username}>
+                      {truncateUsername(user?.username)}
+                    </span>
+                  </div>
                   {user?.role === 'admin' && (
-                    <span className="ml-2 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
+                    <span className="inline-block mt-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
                       Admin
                     </span>
                   )}
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 text-sm"
+                  className="px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 text-sm whitespace-nowrap"
                 >
                   Logout
                 </button>
@@ -205,15 +217,17 @@ const Navbar = () => {
               ))}
             </div>
             
-            {/* Mobile Auth Section */}
+            {/* Mobile Auth Section - FIXED: Better username display */}
             <div className="border-t border-gray-200 dark:border-gray-700 mt-6 pt-6 px-4">
               {isAuthenticated ? (
                 <div className="space-y-4">
                   <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                     <div className="text-sm text-gray-600 dark:text-gray-400">Welcome back!</div>
-                    <div className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</div>
+                    <div className="font-semibold text-yellow-600 dark:text-yellow-400 break-words" title={user?.username}>
+                      {user?.username}
+                    </div>
                     {user?.role === 'admin' && (
-                      <span className="inline-block mt-1 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
+                      <span className="inline-block mt-2 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
                         Admin
                       </span>
                     )}
