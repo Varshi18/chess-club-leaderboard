@@ -13,6 +13,7 @@ const GameTimer = ({
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
   const lastUpdateRef = useRef(Date.now());
+  const startTimeRef = useRef(null);
 
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
@@ -33,8 +34,10 @@ const GameTimer = ({
     
     // Only run local timer for practice mode (non-server-controlled)
     if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
+      startTimeRef.current = Date.now();
       lastUpdateRef.current = Date.now();
       
+      // Use more frequent updates for smoother countdown
       intervalRef.current = setInterval(() => {
         const now = Date.now();
         const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
@@ -49,7 +52,7 @@ const GameTimer = ({
           });
           lastUpdateRef.current = now;
         }
-      }, 100); // Check every 100ms for accuracy
+      }, 100); // Check every 100ms for smooth updates
     }
     
     return () => {
@@ -86,7 +89,7 @@ const GameTimer = ({
 
   return (
     <motion.div 
-      className={`relative p-3 lg:p-4 rounded-xl shadow-lg bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200 dark:border-gray-700 ${
+      className={`relative p-4 rounded-xl shadow-lg bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 ${
         isActive ? 'ring-2 ring-blue-400 ring-opacity-75' : ''
       }`}
       animate={{ 
@@ -96,10 +99,10 @@ const GameTimer = ({
       transition={{ duration: 0.3 }}
     >
       <div className="text-center">
-        <div className={`text-xl lg:text-2xl font-bold bg-gradient-to-r ${getTimerColor()} bg-clip-text text-transparent mb-2`}>
+        <div className={`text-2xl font-bold bg-gradient-to-r ${getTimerColor()} bg-clip-text text-transparent mb-2`}>
           {formatTime(timeLeft)}
         </div>
-        <div className="text-xs lg:text-sm text-gray-600 dark:text-gray-400 capitalize mb-2">
+        <div className="text-sm text-gray-600 dark:text-gray-400 capitalize mb-2">
           {player} Player
           {serverControlled && (
             <span className="block text-xs text-blue-500">Server Sync</span>

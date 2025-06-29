@@ -65,26 +65,25 @@ const Navbar = () => {
 
   return (
     <>
-      <nav className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-md fixed top-0 left-0 w-full flex justify-between items-center py-3 sm:py-4 px-4 sm:px-6 lg:px-8 shadow-lg border-b border-gray-200 dark:border-gray-700 z-50 transition-all duration-300">
+      <nav className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md fixed top-0 left-0 w-full flex justify-between items-center py-3 px-4 lg:px-8 shadow-lg border-b border-gray-200 dark:border-gray-700 z-50 transition-all duration-300">
         {/* Logo */}
-        <div className="text-gray-900 dark:text-white text-lg sm:text-xl lg:text-2xl font-bold tracking-wide hover:scale-105 transform transition-all duration-300 cursor-pointer flex-shrink-0">
+        <div className="text-gray-900 dark:text-white text-lg lg:text-xl font-bold tracking-wide hover:scale-105 transform transition-all duration-300 cursor-pointer flex-shrink-0">
           <Link to="/" onClick={closeMenu} className="flex items-center">
             <span className="bg-gradient-to-r from-yellow-400 to-orange-500 bg-clip-text text-transparent">
               IIT Dharwad
             </span>
-            <span className="ml-2 hidden sm:inline text-gray-900 dark:text-white">Chess Club</span>
-            <span className="ml-2 sm:hidden text-gray-900 dark:text-white">Chess</span>
+            <span className="ml-2 text-gray-900 dark:text-white">Chess Club</span>
           </Link>
         </div>
         
         {/* Desktop Menu */}
-        <div className="hidden lg:flex items-center space-x-6 xl:space-x-8">
-          <ul className="flex space-x-4 xl:space-x-6">
+        <div className="hidden lg:flex items-center space-x-6">
+          <ul className="flex space-x-4">
             {navigationItems.map(({ path, label }) => (
               <li key={path}>
                 <Link
                   to={path}
-                  className={`relative px-3 xl:px-4 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 text-sm xl:text-base ${
+                  className={`relative px-3 py-2 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 text-sm ${
                     isActive(path)
                       ? 'text-gray-900 dark:text-white bg-yellow-100 dark:bg-yellow-900/30'
                       : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
@@ -100,10 +99,10 @@ const Navbar = () => {
           </ul>
           
           {/* Desktop User Menu */}
-          <div className="flex items-center space-x-3 xl:space-x-4">
+          <div className="flex items-center space-x-3">
             {isAuthenticated ? (
-              <div className="flex items-center space-x-3 xl:space-x-4">
-                <div className="text-sm text-gray-700 dark:text-gray-300 hidden xl:block">
+              <div className="flex items-center space-x-3">
+                <div className="text-sm text-gray-700 dark:text-gray-300">
                   Welcome, <span className="font-semibold text-yellow-600 dark:text-yellow-400">{user?.username}</span>
                   {user?.role === 'admin' && (
                     <span className="ml-2 px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-xs rounded-full">
@@ -113,22 +112,22 @@ const Navbar = () => {
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="px-3 xl:px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 text-sm xl:text-base"
+                  className="px-3 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 transform hover:scale-105 text-sm"
                 >
                   Logout
                 </button>
               </div>
             ) : (
-              <div className="flex items-center space-x-2 xl:space-x-3">
+              <div className="flex items-center space-x-2">
                 <Link
                   to="/login"
-                  className="px-3 xl:px-4 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300 text-sm xl:text-base"
+                  className="px-3 py-2 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-300 text-sm"
                 >
                   Login
                 </Link>
                 <Link
                   to="/register"
-                  className="px-3 xl:px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 text-sm xl:text-base"
+                  className="px-3 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-medium rounded-lg hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 text-sm"
                 >
                   Sign Up
                 </Link>

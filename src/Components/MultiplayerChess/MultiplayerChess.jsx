@@ -109,7 +109,7 @@ const MultiplayerChess = ({
         setGameStarted(true);
         setSyncStatus('connected');
         
-        // Start real-time sync with server (every 2 seconds to reduce server load)
+        // Start real-time sync with server (every 1 second for better performance)
         startServerSync();
         
       } else {
@@ -218,12 +218,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
-    // Sync with server every 2 seconds to reduce server load
+    // Sync with server every 1 second for better performance
     syncIntervalRef.current = setInterval(() => {
       syncWithServer();
-    }, 2000);
+    }, 1000);
     
-    console.log('🔄 Started server sync (2 second interval)');
+    console.log('🔄 Started server sync (1 second interval)');
   };
 
   const syncWithServer = async () => {
@@ -727,7 +727,7 @@ const MultiplayerChess = ({
         {/* Chess Board - Center */}
         <div className={`${gameMode === 'practice' ? 'lg:col-span-8' : 'lg:col-span-6'} order-2 lg:order-2`}>
           <motion.div 
-            className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl lg:rounded-2xl p-3 lg:p-6 shadow-xl border border-gray-200 dark:border-gray-700"
+            className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl lg:rounded-2xl p-4 lg:p-6 shadow-xl border border-gray-200 dark:border-gray-700"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.5 }}
@@ -756,7 +756,7 @@ const MultiplayerChess = ({
             
             {/* Game Status */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.2 }}
@@ -805,7 +805,7 @@ const MultiplayerChess = ({
 
             {/* Controls */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
@@ -838,7 +838,7 @@ const MultiplayerChess = ({
 
             {/* Captured Pieces */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.4 }}
@@ -894,7 +894,7 @@ const MultiplayerChess = ({
 
             {/* Move History */}
             <motion.div 
-              className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
+              className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.5 }}
