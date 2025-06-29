@@ -40,7 +40,10 @@ const generateGameId = () => {
 // Helper function to safely convert to ObjectId
 const toObjectId = (id) => {
   try {
-    return new ObjectId(id);
+    if (ObjectId.isValid(id)) {
+      return new ObjectId(id);
+    }
+    return null;
   } catch (error) {
     return null;
   }
@@ -428,39 +431,65 @@ export default async function handler(req, res) {
       if (req.method === 'POST' && action === 'send') {
         const { challengedUserId, timeControl } = req.body;
 
-        if (challengedUserId === decoded.userId) {
-          return res.status(400).json({ success: false, message: 'Cannot challenge yourself' });
+        try {
+          // Validate input
+          if (!challengedUserId || !timeControl) {
+            return res.status(400).json({ success: false, message: 'Challenged user ID and time control are required' });
+          }
+
+          if (challengedUserId === decoded.userId) {
+            return res.status(400).json({ success: false, message: 'Cannot challenge yourself' });
+          }
+
+          // Check if challenged user exists
+          const challengedUser = await db.collection('users').findOne({ _id: toObjectId(challengedUserId) });
+          if (!challengedUser) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+          }
+
+          // Check for existing pending challenge between these users
+          const existingChallenge = await db.collection('challenges').findOne({
+            $or: [
+              { challengerId: decoded.userId, challengedUserId: challengedUserId, status: 'pending' },
+              { challengerId: challengedUserId, challengedUserId: decoded.userId, status: 'pending' }
+            ]
+          });
+
+          if (existingChallenge) {
+            return res.status(400).json({ success: false, message: 'A pending challenge already exists between you and this user' });
+          }
+
+          const challenge = {
+            id: generateGameId(),
+            challengerId: decoded.userId,
+            challengedUserId: challengedUserId,
+            timeControl: parseInt(timeControl),
+            status: 'pending',
+            createdAt: new Date()
+          };
+
+          const result = await db.collection('challenges').insertOne(challenge);
+          
+          if (!result.insertedId) {
+            return res.status(500).json({ success: false, message: 'Failed to create challenge' });
+          }
+
+          console.log('✅ Challenge created:', {
+            challengeId: challenge.id,
+            challenger: decoded.userId,
+            challenged: challengedUserId,
+            timeControl: challenge.timeControl
+          });
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Challenge sent successfully',
+            challengeId: challenge.id
+          });
+        } catch (error) {
+          console.error('Error sending challenge:', error);
+          return res.status(500).json({ success: false, message: 'Failed to send challenge' });
         }
-
-        // Check if challenged user exists
-        const challengedUser = await db.collection('users').findOne({ _id: toObjectId(challengedUserId) });
-        if (!challengedUser) {
-          return res.status(404).json({ success: false, message: 'User not found' });
-        }
-
-        // Check for existing pending challenge
-        const existingChallenge = await db.collection('challenges').findOne({
-          challengerId: decoded.userId,
-          challengedUserId,
-          status: 'pending'
-        });
-
-        if (existingChallenge) {
-          return res.status(400).json({ success: false, message: 'Challenge already sent' });
-        }
-
-        const challenge = {
-          id: generateGameId(),
-          challengerId: decoded.userId,
-          challengedUserId,
-          timeControl: parseInt(timeControl),
-          status: 'pending',
-          createdAt: new Date()
-        };
-
-        await db.collection('challenges').insertOne(challenge);
-
-        return res.status(200).json({ success: true, message: 'Challenge sent successfully' });
       }
 
       if (req.method === 'GET' && action === 'received') {
@@ -541,6 +570,10 @@ export default async function handler(req, res) {
         const { challengeId, response } = req.body;
 
         try {
+          if (!challengeId || !response) {
+            return res.status(400).json({ success: false, message: 'Challenge ID and response are required' });
+          }
+
           const challenge = await db.collection('challenges').findOne({ 
             id: challengeId,
             challengedUserId: decoded.userId,
@@ -548,7 +581,7 @@ export default async function handler(req, res) {
           });
 
           if (!challenge) {
-            return res.status(404).json({ success: false, message: 'Challenge not found' });
+            return res.status(404).json({ success: false, message: 'Challenge not found or already responded to' });
           }
 
           if (response === 'accept') {
@@ -568,7 +601,11 @@ export default async function handler(req, res) {
               createdAt: new Date()
             };
 
-            await db.collection('game_sessions').insertOne(gameSession);
+            const gameResult = await db.collection('game_sessions').insertOne(gameSession);
+            
+            if (!gameResult.insertedId) {
+              return res.status(500).json({ success: false, message: 'Failed to create game session' });
+            }
 
             // Update challenge status
             await db.collection('challenges').updateOne(
@@ -582,12 +619,19 @@ export default async function handler(req, res) {
               }
             );
 
+            console.log('✅ Challenge accepted, game created:', {
+              challengeId,
+              gameId,
+              whitePlayer: challenge.challengerId,
+              blackPlayer: decoded.userId
+            });
+
             return res.status(200).json({ 
               success: true, 
               message: 'Challenge accepted',
               gameId 
             });
-          } else {
+          } else if (response === 'decline') {
             // Decline challenge
             await db.collection('challenges').updateOne(
               { id: challengeId },
@@ -600,6 +644,8 @@ export default async function handler(req, res) {
             );
 
             return res.status(200).json({ success: true, message: 'Challenge declined' });
+          } else {
+            return res.status(400).json({ success: false, message: 'Invalid response. Must be "accept" or "decline"' });
           }
         } catch (error) {
           console.error('Error responding to challenge:', error);
@@ -611,11 +657,19 @@ export default async function handler(req, res) {
         const { challengeId } = req.query;
 
         try {
-          await db.collection('challenges').deleteOne({
+          if (!challengeId) {
+            return res.status(400).json({ success: false, message: 'Challenge ID is required' });
+          }
+
+          const result = await db.collection('challenges').deleteOne({
             id: challengeId,
             challengerId: decoded.userId,
             status: 'pending'
           });
+
+          if (result.deletedCount === 0) {
+            return res.status(404).json({ success: false, message: 'Challenge not found or cannot be cancelled' });
+          }
 
           return res.status(200).json({ success: true, message: 'Challenge cancelled' });
         } catch (error) {
@@ -759,11 +813,21 @@ export default async function handler(req, res) {
         // Send friend request
         const { userId } = req.body;
 
+        if (!userId) {
+          return res.status(400).json({ success: false, message: 'User ID is required' });
+        }
+
         if (userId === decoded.userId) {
           return res.status(400).json({ success: false, message: 'Cannot add yourself as friend' });
         }
 
         try {
+          // Check if user exists
+          const targetUser = await db.collection('users').findOne({ _id: toObjectId(userId) });
+          if (!targetUser) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+          }
+
           // Check if already friends or request exists
           const existingFriendship = await db.collection('friendships').findOne({
             $or: [
