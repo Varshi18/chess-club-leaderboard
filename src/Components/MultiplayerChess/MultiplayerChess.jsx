@@ -90,17 +90,48 @@ const MultiplayerChess = ({
         
         console.log('🎯 Game session loaded:', session);
         
-        // FIXED: Determine player color correctly
-        const isWhitePlayer = session.whitePlayerId === user.id || session.whitePlayerId === user._id;
-        const assignedColor = isWhitePlayer ? 'white' : 'black';
+        // FIXED: Determine player color correctly using multiple ID formats
+        const userId = user.id || user._id;
+        const userIdString = userId?.toString();
+        const whitePlayerIdString = session.whitePlayerId?.toString();
+        const blackPlayerIdString = session.blackPlayerId?.toString();
+        
+        console.log('🔍 ID Comparison:', {
+          userId,
+          userIdString,
+          whitePlayerId: session.whitePlayerId,
+          whitePlayerIdString,
+          blackPlayerId: session.blackPlayerId,
+          blackPlayerIdString
+        });
+        
+        let assignedColor;
+        if (userIdString === whitePlayerIdString) {
+          assignedColor = 'white';
+        } else if (userIdString === blackPlayerIdString) {
+          assignedColor = 'black';
+        } else {
+          // Fallback: assign based on username if IDs don't match
+          if (session.whitePlayer?.username === user.username) {
+            assignedColor = 'white';
+          } else if (session.blackPlayer?.username === user.username) {
+            assignedColor = 'black';
+          } else {
+            console.warn('⚠️ Could not determine player color, defaulting to white');
+            assignedColor = 'white';
+          }
+        }
+        
         setPlayerColor(assignedColor);
         
         console.log('🎨 Player color assignment:', {
-          userId: user.id || user._id,
-          whitePlayerId: session.whitePlayerId,
-          blackPlayerId: session.blackPlayerId,
+          userId: userIdString,
+          whitePlayerId: whitePlayerIdString,
+          blackPlayerId: blackPlayerIdString,
           assignedColor,
-          isWhitePlayer
+          whitePlayerUsername: session.whitePlayer?.username,
+          blackPlayerUsername: session.blackPlayer?.username,
+          currentUserUsername: user.username
         });
         
         // Load game state from server
@@ -176,8 +207,8 @@ const MultiplayerChess = ({
       
       updateCapturedPieces(newGame.history({ verbose: true }));
       
-      // Update PGN
-      const pgn = generatePGN(newGame, session);
+      // FIXED: Generate PGN with correct player names from server
+      const pgn = generatePGNFromServer(newGame, session);
       if (onPgnUpdate) {
         onPgnUpdate(pgn);
       }
@@ -351,6 +382,52 @@ const MultiplayerChess = ({
     
     setCapturedPieces(captured);
   }, [trackCapturedPieces]);
+
+  // FIXED: Generate PGN from server data to ensure consistency
+  const generatePGNFromServer = useCallback((gameInstance, session) => {
+    const history = gameInstance.history();
+    let pgn = '';
+    
+    if (gameMode === 'multiplayer' && session) {
+      const now = new Date();
+      const whiteUsername = session.whitePlayer?.username || 'White Player';
+      const blackUsername = session.blackPlayer?.username || 'Black Player';
+      
+      pgn += `[Event "Chess Club Game"]\n`;
+      pgn += `[Site "IIT Dharwad Chess Club"]\n`;
+      pgn += `[Date "${now.toISOString().split('T')[0]}"]\n`;
+      pgn += `[Round "?"]\n`;
+      pgn += `[White "${whiteUsername}"]\n`;
+      pgn += `[Black "${blackUsername}"]\n`;
+      pgn += `[Result "*"]\n`;
+      pgn += `[TimeControl "${session.timeControl || timeControl.white}"]\n\n`;
+    }
+    
+    // Add moves
+    for (let i = 0; i < history.length; i += 2) {
+      const moveNumber = Math.floor(i / 2) + 1;
+      pgn += `${moveNumber}. ${history[i]}`;
+      if (history[i + 1]) {
+        pgn += ` ${history[i + 1]}`;
+      }
+      if ((i + 2) % 10 === 0) {
+        pgn += '\n';
+      } else {
+        pgn += ' ';
+      }
+    }
+    
+    // Add result if game is over
+    if (gameInstance.isGameOver()) {
+      if (gameInstance.isCheckmate()) {
+        pgn += gameInstance.turn() === 'w' ? ' 0-1' : ' 1-0';
+      } else {
+        pgn += ' 1/2-1/2';
+      }
+    }
+    
+    return pgn.trim();
+  }, [gameMode, timeControl]);
 
   const generatePGN = useCallback((gameInstance, session = null) => {
     const history = gameInstance.history();
