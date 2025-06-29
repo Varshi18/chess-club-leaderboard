@@ -444,7 +444,7 @@ export default async function handler(req, res) {
         try {
           const challenges = await db.collection('challenges').find({
             challengerId: user._id,
-            status: { $in: ['pending'] } // FIXED: Only show pending challenges
+            status: { $in: ['pending', 'accepted'] } // FIXED: Include accepted to detect when accepted
           }).toArray();
           
           if (challenges.length === 0) {
@@ -498,11 +498,16 @@ export default async function handler(req, res) {
           if (response === 'accept') {
             const gameId = new ObjectId();
             
+            // FIXED: Determine colors randomly for fairness
+            const isUserWhite = Math.random() < 0.5;
+            const whitePlayerId = isUserWhite ? user._id : challenge.challengerId;
+            const blackPlayerId = isUserWhite ? challenge.challengerId : user._id;
+            
             // Create game session
             const gameSession = {
               _id: gameId,
-              whitePlayerId: challenge.challengerId,
-              blackPlayerId: user._id,
+              whitePlayerId: whitePlayerId,
+              blackPlayerId: blackPlayerId,
               timeControl: challenge.timeControl,
               whiteTimeLeft: challenge.timeControl,
               blackTimeLeft: challenge.timeControl,

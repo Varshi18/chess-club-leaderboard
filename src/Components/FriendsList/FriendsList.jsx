@@ -60,7 +60,6 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching friends:', error.message);
-      // FIXED: Don't show error for empty friends list
       setFriends([]);
     } finally {
       setLoading(false);
@@ -75,7 +74,6 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error.message);
-      // FIXED: Don't show error for empty requests
       setFriendRequests([]);
     }
   };
@@ -88,7 +86,6 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching challenges:', error.message);
-      // FIXED: Don't show error for empty challenges
       setReceivedChallenges([]);
     }
   };
@@ -99,16 +96,16 @@ const FriendsList = ({ onChallengePlayer }) => {
       if (response.data.success) {
         const challenges = response.data.challenges || [];
         
-        // FIXED: Filter out completed/accepted challenges to prevent them from showing
-        const activeChallenges = challenges.filter(c => c.status === 'pending');
-        setSentChallenges(activeChallenges);
+        // FIXED: Only show pending challenges to prevent confusion
+        const pendingChallenges = challenges.filter(c => c.status === 'pending');
+        setSentChallenges(pendingChallenges);
         
-        // Check for accepted challenges and redirect both players
+        // FIXED: Check for accepted challenges and redirect BOTH players
         const acceptedChallenge = challenges.find(c => c.status === 'accepted' && c.gameId);
         if (acceptedChallenge && onChallengePlayer) {
-          console.log('🎯 Challenge accepted! Redirecting to game:', acceptedChallenge);
+          console.log('🎯 Challenge accepted! Redirecting challenger to game:', acceptedChallenge);
           
-          // FIXED: Mark challenge as completed on server to prevent re-triggering
+          // Mark challenge as completed to prevent re-triggering
           try {
             await api.patch('/?endpoint=challenges&action=complete', {
               challengeId: acceptedChallenge.id
@@ -117,7 +114,7 @@ const FriendsList = ({ onChallengePlayer }) => {
             console.error('Error marking challenge as completed:', error);
           }
           
-          // Redirect to game with proper game data
+          // Redirect challenger to game
           onChallengePlayer({
             id: acceptedChallenge.challenged.id,
             username: acceptedChallenge.challenged.username,
@@ -134,7 +131,6 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching sent challenges:', error.message);
-      // FIXED: Don't show error for empty challenges
       setSentChallenges([]);
     }
   };
@@ -252,9 +248,9 @@ const FriendsList = ({ onChallengePlayer }) => {
           // Find the challenge to get challenger info
           const challenge = receivedChallenges.find(c => c.id === challengeId);
           if (challenge) {
-            console.log('🎯 Accepting challenge and redirecting to game:', challenge);
+            console.log('🎯 Accepting challenge and redirecting accepter to game:', challenge);
             
-            // Both players should be redirected to the game
+            // FIXED: Both players should be redirected to the same game
             onChallengePlayer({
               id: challenge.challenger.id,
               username: challenge.challenger.username,
