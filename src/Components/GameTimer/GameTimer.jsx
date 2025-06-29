@@ -13,7 +13,6 @@ const GameTimer = ({
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
   const lastUpdateRef = useRef(Date.now());
-  const startTimeRef = useRef(null);
 
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
@@ -34,10 +33,9 @@ const GameTimer = ({
     
     // Only run local timer for practice mode (non-server-controlled)
     if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
-      startTimeRef.current = Date.now();
       lastUpdateRef.current = Date.now();
       
-      // Use more frequent updates for smoother countdown
+      // FIXED: Update every second for real-time countdown
       intervalRef.current = setInterval(() => {
         const now = Date.now();
         const elapsed = Math.floor((now - lastUpdateRef.current) / 1000);
@@ -52,7 +50,7 @@ const GameTimer = ({
           });
           lastUpdateRef.current = now;
         }
-      }, 100); // Check every 100ms for smooth updates
+      }, 1000); // FIXED: Update every 1000ms (1 second) for real-time countdown
     }
     
     return () => {

@@ -319,6 +319,15 @@ export default async function handler(req, res) {
             return res.status(404).json({ success: false, message: 'Game session not found' });
           }
 
+          // Check if game is paused or ended
+          if (gameSession.status === 'paused') {
+            return res.status(400).json({ success: false, message: 'Game is paused' });
+          }
+
+          if (gameSession.status === 'completed') {
+            return res.status(400).json({ success: false, message: 'Game has ended' });
+          }
+
           // Verify it's the player's turn
           const userIdStr = decoded.userId.toString();
           const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
@@ -397,6 +406,363 @@ export default async function handler(req, res) {
         }
       }
 
+      // NEW: Resign endpoint
+      if (req.method === 'PATCH' && action === 'resign') {
+        const { gameId } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          // Verify user is part of this game
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          // Determine winner (opponent of the player who resigned)
+          const result = isWhitePlayer ? '0-1' : '1-0';
+          const winner = isWhitePlayer ? 'Black' : 'White';
+
+          await db.collection('game_sessions').updateOne(
+            { gameId },
+            {
+              $set: {
+                status: 'completed',
+                result,
+                reason: 'resignation',
+                resignedBy: decoded.userId,
+                endedAt: new Date(),
+                version: (gameSession.version || 0) + 1
+              }
+            }
+          );
+
+          console.log('🏳️ Player resigned:', {
+            gameId,
+            resignedBy: decoded.userId,
+            winner,
+            result
+          });
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Game ended by resignation',
+            result,
+            winner,
+            reason: 'resignation'
+          });
+        } catch (error) {
+          console.error('Error processing resignation:', error);
+          return res.status(500).json({ success: false, message: 'Failed to process resignation' });
+        }
+      }
+
+      // NEW: Draw offer endpoint
+      if (req.method === 'PATCH' && action === 'offer-draw') {
+        const { gameId } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          // Verify user is part of this game
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          // Check if there's already a pending draw offer
+          if (gameSession.drawOffer && gameSession.drawOffer.status === 'pending') {
+            return res.status(400).json({ success: false, message: 'Draw offer already pending' });
+          }
+
+          await db.collection('game_sessions').updateOne(
+            { gameId },
+            {
+              $set: {
+                drawOffer: {
+                  offeredBy: decoded.userId,
+                  status: 'pending',
+                  offeredAt: new Date()
+                },
+                version: (gameSession.version || 0) + 1
+              }
+            }
+          );
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Draw offer sent'
+          });
+        } catch (error) {
+          console.error('Error offering draw:', error);
+          return res.status(500).json({ success: false, message: 'Failed to offer draw' });
+        }
+      }
+
+      // NEW: Respond to draw offer endpoint
+      if (req.method === 'PATCH' && action === 'respond-draw') {
+        const { gameId, response } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          // Verify user is part of this game and not the one who offered the draw
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          if (!gameSession.drawOffer || gameSession.drawOffer.status !== 'pending') {
+            return res.status(400).json({ success: false, message: 'No pending draw offer' });
+          }
+
+          if (gameSession.drawOffer.offeredBy === userIdStr) {
+            return res.status(400).json({ success: false, message: 'Cannot respond to your own draw offer' });
+          }
+
+          if (response === 'accept') {
+            // Accept draw
+            await db.collection('game_sessions').updateOne(
+              { gameId },
+              {
+                $set: {
+                  status: 'completed',
+                  result: '1/2-1/2',
+                  reason: 'draw_agreement',
+                  endedAt: new Date(),
+                  drawOffer: {
+                    ...gameSession.drawOffer,
+                    status: 'accepted',
+                    respondedAt: new Date()
+                  },
+                  version: (gameSession.version || 0) + 1
+                }
+              }
+            );
+
+            return res.status(200).json({ 
+              success: true, 
+              message: 'Draw accepted',
+              result: '1/2-1/2',
+              reason: 'draw_agreement'
+            });
+          } else {
+            // Decline draw
+            await db.collection('game_sessions').updateOne(
+              { gameId },
+              {
+                $set: {
+                  drawOffer: {
+                    ...gameSession.drawOffer,
+                    status: 'declined',
+                    respondedAt: new Date()
+                  },
+                  version: (gameSession.version || 0) + 1
+                }
+              }
+            );
+
+            return res.status(200).json({ 
+              success: true, 
+              message: 'Draw declined'
+            });
+          }
+        } catch (error) {
+          console.error('Error responding to draw:', error);
+          return res.status(500).json({ success: false, message: 'Failed to respond to draw' });
+        }
+      }
+
+      // NEW: Pause game endpoint
+      if (req.method === 'PATCH' && action === 'pause') {
+        const { gameId } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          // Verify user is part of this game
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          // Check if there's already a pending pause request
+          if (gameSession.pauseRequest && gameSession.pauseRequest.status === 'pending') {
+            return res.status(400).json({ success: false, message: 'Pause request already pending' });
+          }
+
+          await db.collection('game_sessions').updateOne(
+            { gameId },
+            {
+              $set: {
+                pauseRequest: {
+                  requestedBy: decoded.userId,
+                  status: 'pending',
+                  requestedAt: new Date()
+                },
+                version: (gameSession.version || 0) + 1
+              }
+            }
+          );
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Pause request sent'
+          });
+        } catch (error) {
+          console.error('Error requesting pause:', error);
+          return res.status(500).json({ success: false, message: 'Failed to request pause' });
+        }
+      }
+
+      // NEW: Respond to pause request endpoint
+      if (req.method === 'PATCH' && action === 'respond-pause') {
+        const { gameId, response } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          // Verify user is part of this game and not the one who requested the pause
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          if (!gameSession.pauseRequest || gameSession.pauseRequest.status !== 'pending') {
+            return res.status(400).json({ success: false, message: 'No pending pause request' });
+          }
+
+          if (gameSession.pauseRequest.requestedBy === userIdStr) {
+            return res.status(400).json({ success: false, message: 'Cannot respond to your own pause request' });
+          }
+
+          if (response === 'accept') {
+            // Accept pause
+            await db.collection('game_sessions').updateOne(
+              { gameId },
+              {
+                $set: {
+                  status: 'paused',
+                  pausedAt: new Date(),
+                  pauseRequest: {
+                    ...gameSession.pauseRequest,
+                    status: 'accepted',
+                    respondedAt: new Date()
+                  },
+                  version: (gameSession.version || 0) + 1
+                }
+              }
+            );
+
+            return res.status(200).json({ 
+              success: true, 
+              message: 'Game paused'
+            });
+          } else {
+            // Decline pause
+            await db.collection('game_sessions').updateOne(
+              { gameId },
+              {
+                $set: {
+                  pauseRequest: {
+                    ...gameSession.pauseRequest,
+                    status: 'declined',
+                    respondedAt: new Date()
+                  },
+                  version: (gameSession.version || 0) + 1
+                }
+              }
+            );
+
+            return res.status(200).json({ 
+              success: true, 
+              message: 'Pause request declined'
+            });
+          }
+        } catch (error) {
+          console.error('Error responding to pause:', error);
+          return res.status(500).json({ success: false, message: 'Failed to respond to pause' });
+        }
+      }
+
+      // NEW: Resume game endpoint
+      if (req.method === 'PATCH' && action === 'resume') {
+        const { gameId } = req.body;
+        
+        try {
+          const gameSession = await db.collection('game_sessions').findOne({ gameId });
+          if (!gameSession) {
+            return res.status(404).json({ success: false, message: 'Game session not found' });
+          }
+
+          if (gameSession.status !== 'paused') {
+            return res.status(400).json({ success: false, message: 'Game is not paused' });
+          }
+
+          // Verify user is part of this game
+          const userIdStr = decoded.userId.toString();
+          const isWhitePlayer = gameSession.whitePlayerId.toString() === userIdStr;
+          const isBlackPlayer = gameSession.blackPlayerId.toString() === userIdStr;
+          
+          if (!isWhitePlayer && !isBlackPlayer) {
+            return res.status(403).json({ success: false, message: 'Not a player in this game' });
+          }
+
+          await db.collection('game_sessions').updateOne(
+            { gameId },
+            {
+              $set: {
+                status: 'active',
+                resumedAt: new Date(),
+                version: (gameSession.version || 0) + 1
+              },
+              $unset: {
+                pausedAt: 1,
+                pauseRequest: 1
+              }
+            }
+          );
+
+          return res.status(200).json({ 
+            success: true, 
+            message: 'Game resumed'
+          });
+        } catch (error) {
+          console.error('Error resuming game:', error);
+          return res.status(500).json({ success: false, message: 'Failed to resume game' });
+        }
+      }
+
       if (req.method === 'PATCH' && action === 'end') {
         const { gameId, result, reason } = req.body;
         
@@ -408,7 +774,8 @@ export default async function handler(req, res) {
                 status: 'completed',
                 result,
                 reason,
-                endedAt: new Date()
+                endedAt: new Date(),
+                version: (gameSession.version || 0) + 1
               }
             }
           );

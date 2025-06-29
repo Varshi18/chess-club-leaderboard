@@ -36,10 +36,17 @@ const MultiplayerChess = ({
   const [serverTimeLeft, setServerTimeLeft] = useState({ white: initialTimeControl, black: initialTimeControl });
   const [connectionError, setConnectionError] = useState(null);
   
+  // NEW: Game control states
+  const [drawOffer, setDrawOffer] = useState(null);
+  const [pauseRequest, setPauseRequest] = useState(null);
+  const [showDrawModal, setShowDrawModal] = useState(false);
+  const [showPauseModal, setShowPauseModal] = useState(false);
+  
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
   const lastSyncTimeRef = useRef(Date.now());
+  const timerIntervalRef = useRef(null);
 
   // Set up API
   const api = axios.create({
@@ -73,8 +80,59 @@ const MultiplayerChess = ({
         clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = null;
       }
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
     };
   }, [gameMode, gameId, opponent, user]);
+
+  // NEW: Real-time timer for multiplayer games
+  useEffect(() => {
+    if (gameMode === 'multiplayer' && gameStarted && !isPaused && gameSession?.status === 'active') {
+      // Clear any existing timer
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+      
+      // Start real-time timer that updates every second
+      timerIntervalRef.current = setInterval(() => {
+        setServerTimeLeft(prevTime => {
+          const newTime = { ...prevTime };
+          
+          // Only decrease time for the active player
+          if (activePlayer === 'white' && newTime.white > 0) {
+            newTime.white = Math.max(0, newTime.white - 1);
+            if (newTime.white === 0) {
+              handleTimeUp('white');
+            }
+          } else if (activePlayer === 'black' && newTime.black > 0) {
+            newTime.black = Math.max(0, newTime.black - 1);
+            if (newTime.black === 0) {
+              handleTimeUp('black');
+            }
+          }
+          
+          return newTime;
+        });
+      }, 1000); // Update every second for real-time countdown
+      
+      console.log('⏰ Started real-time timer for', activePlayer);
+    } else {
+      // Clear timer when game is paused or not active
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
+    
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [gameMode, gameStarted, isPaused, activePlayer, gameSession?.status]);
 
   const initializeMultiplayerGame = async () => {
     try {
@@ -109,7 +167,7 @@ const MultiplayerChess = ({
         setGameStarted(true);
         setSyncStatus('connected');
         
-        // Start real-time sync with server (every 1 second for better performance)
+        // Start real-time sync with server (every 2 seconds for better performance)
         startServerSync();
         
       } else {
@@ -180,6 +238,19 @@ const MultiplayerChess = ({
       
       setIsMyTurn(isMyTurnNow);
       
+      // NEW: Load game control states
+      setDrawOffer(session.drawOffer || null);
+      setPauseRequest(session.pauseRequest || null);
+      setIsPaused(session.status === 'paused');
+      
+      // Show modals for pending requests
+      if (session.drawOffer?.status === 'pending' && session.drawOffer.offeredBy !== user.id) {
+        setShowDrawModal(true);
+      }
+      if (session.pauseRequest?.status === 'pending' && session.pauseRequest.requestedBy !== user.id) {
+        setShowPauseModal(true);
+      }
+      
       updateCapturedPieces(newGame.history({ verbose: true }));
       
       // Update PGN - FIXED: Generate complete PGN from all moves
@@ -204,7 +275,9 @@ const MultiplayerChess = ({
         whiteTime: whiteTime,
         blackTime: blackTime,
         status: session.status,
-        playerColor: myColor
+        playerColor: myColor,
+        drawOffer: session.drawOffer,
+        pauseRequest: session.pauseRequest
       });
       
     } catch (error) {
@@ -218,12 +291,12 @@ const MultiplayerChess = ({
       clearInterval(syncIntervalRef.current);
     }
     
-    // Sync with server every 1 second for better performance
+    // Sync with server every 2 seconds for better performance
     syncIntervalRef.current = setInterval(() => {
       syncWithServer();
-    }, 1000);
+    }, 2000);
     
-    console.log('🔄 Started server sync (1 second interval)');
+    console.log('🔄 Started server sync (2 second interval)');
   };
 
   const syncWithServer = async () => {
@@ -294,13 +367,130 @@ const MultiplayerChess = ({
     setGameResult(gameResult);
     setShowGameOver(true);
     
-    // Stop syncing when game ends
+    // Stop syncing and timers when game ends
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     
     console.log('🏁 Game ended by server:', gameResult);
+    
+    // Notify both players that the game has ended
+    if (onGameEnd) {
+      setTimeout(() => {
+        onGameEnd();
+      }, 3000); // Give time to see the game over modal
+    }
+  };
+
+  // NEW: Resign function
+  const handleResign = async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.patch('/?endpoint=game-sessions&action=resign', { gameId });
+        if (response.data.success) {
+          console.log('🏳️ Resignation processed');
+          // Server will handle the game end and both players will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error processing resignation:', error);
+        setConnectionError('Failed to process resignation');
+      }
+    } else {
+      // Practice mode - handle locally
+      const winner = playerColor === 'white' ? 'Black' : 'White';
+      setGameResult({ winner, reason: 'resignation' });
+      setShowGameOver(true);
+    }
+  };
+
+  // NEW: Draw offer functions
+  const handleOfferDraw = async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.patch('/?endpoint=game-sessions&action=offer-draw', { gameId });
+        if (response.data.success) {
+          console.log('🤝 Draw offer sent');
+          // Server will update the game state and opponent will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error offering draw:', error);
+        setConnectionError('Failed to offer draw');
+      }
+    }
+  };
+
+  const handleRespondToDraw = async (response) => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const apiResponse = await api.patch('/?endpoint=game-sessions&action=respond-draw', { 
+          gameId, 
+          response 
+        });
+        if (apiResponse.data.success) {
+          console.log('🤝 Draw response sent:', response);
+          setShowDrawModal(false);
+          // Server will handle the result and both players will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error responding to draw:', error);
+        setConnectionError('Failed to respond to draw');
+      }
+    }
+  };
+
+  // NEW: Pause functions
+  const handleRequestPause = async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.patch('/?endpoint=game-sessions&action=pause', { gameId });
+        if (response.data.success) {
+          console.log('⏸️ Pause request sent');
+          // Server will update the game state and opponent will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error requesting pause:', error);
+        setConnectionError('Failed to request pause');
+      }
+    }
+  };
+
+  const handleRespondToPause = async (response) => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const apiResponse = await api.patch('/?endpoint=game-sessions&action=respond-pause', { 
+          gameId, 
+          response 
+        });
+        if (apiResponse.data.success) {
+          console.log('⏸️ Pause response sent:', response);
+          setShowPauseModal(false);
+          // Server will handle the result and both players will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error responding to pause:', error);
+        setConnectionError('Failed to respond to pause');
+      }
+    }
+  };
+
+  const handleResume = async () => {
+    if (gameMode === 'multiplayer' && gameId) {
+      try {
+        const response = await api.patch('/?endpoint=game-sessions&action=resume', { gameId });
+        if (response.data.success) {
+          console.log('▶️ Game resumed');
+          // Server will update the game state and both players will be notified via sync
+        }
+      } catch (error) {
+        console.error('❌ Error resuming game:', error);
+        setConnectionError('Failed to resume game');
+      }
+    }
   };
 
   const updateGameStatus = useCallback((gameInstance) => {
@@ -438,6 +628,11 @@ const MultiplayerChess = ({
         console.log('⏸️ Connection error, cannot make move');
         return false;
       }
+
+      if (isPaused) {
+        console.log('⏸️ Game is paused');
+        return false;
+      }
     }
 
     const gameCopy = new Chess(game.fen());
@@ -530,13 +725,13 @@ const MultiplayerChess = ({
     }
     
     return false;
-  }, [game, gameMode, playerColor, gameStarted, isMyTurn, syncStatus, connectionError, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
+  }, [game, gameMode, playerColor, gameStarted, isMyTurn, syncStatus, connectionError, isPaused, updateGameStatus, updateCapturedPieces, onPgnUpdate, generatePGN, user, gameId]);
 
   const onSquareClick = useCallback((square) => {
     // For multiplayer, check if it's player's turn
     if (gameMode === 'multiplayer') {
-      if (!gameStarted || !isMyTurn || syncStatus === 'error' || connectionError) {
-        console.log('⏸️ Cannot interact:', { gameStarted, isMyTurn, syncStatus, connectionError });
+      if (!gameStarted || !isMyTurn || syncStatus === 'error' || connectionError || isPaused) {
+        console.log('⏸️ Cannot interact:', { gameStarted, isMyTurn, syncStatus, connectionError, isPaused });
         return;
       }
     }
@@ -567,7 +762,7 @@ const MultiplayerChess = ({
         setPossibleMoves(moves.map(move => move.to));
       }
     }
-  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, syncStatus, connectionError]);
+  }, [game, selectedSquare, makeMove, gameMode, gameStarted, isMyTurn, syncStatus, connectionError, isPaused]);
 
   const onPieceDrop = useCallback((sourceSquare, targetSquare, piece) => {
     return makeMove(sourceSquare, targetSquare, piece);
@@ -591,12 +786,20 @@ const MultiplayerChess = ({
     setIsMyTurn(true);
     setGameStateVersion(0);
     setConnectionError(null);
+    setDrawOffer(null);
+    setPauseRequest(null);
+    setShowDrawModal(false);
+    setShowPauseModal(false);
     isInitializedRef.current = false;
     
-    // Stop sync
+    // Stop sync and timers
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
+    }
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
     }
     
     updateGameStatus(newGame);
@@ -623,6 +826,10 @@ const MultiplayerChess = ({
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = null;
+      }
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     };
   }, []);
@@ -740,7 +947,7 @@ const MultiplayerChess = ({
                 customSquareStyles={customSquareStyles}
                 boardOrientation={gameMode === 'multiplayer' ? playerColor : 'white'}
                 animationDuration={200}
-                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn && syncStatus !== 'error' && !connectionError))}
+                arePiecesDraggable={!game.isGameOver() && (gameMode === 'practice' || (gameStarted && isMyTurn && syncStatus !== 'error' && !connectionError && !isPaused))}
                 customBoardStyle={{
                   borderRadius: '8px',
                   boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
@@ -775,7 +982,7 @@ const MultiplayerChess = ({
                 animate={{ scale: [1, 1.02, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
               >
-                {gameStatus}
+                {isPaused ? 'Game Paused' : gameStatus}
               </motion.div>
               
               {gameMode === 'multiplayer' && gameSession && (
@@ -803,14 +1010,14 @@ const MultiplayerChess = ({
               )}
             </motion.div>
 
-            {/* Controls */}
+            {/* NEW: Game Controls */}
             <motion.div 
               className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-xl p-4 lg:p-5 shadow-xl border border-gray-200 dark:border-gray-700"
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
-              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Controls</h3>
+              <h3 className="text-base lg:text-lg font-bold mb-3 text-gray-900 dark:text-white">Game Controls</h3>
               <div className="space-y-3">
                 {gameMode === 'practice' && (
                   <motion.button
@@ -824,14 +1031,47 @@ const MultiplayerChess = ({
                 )}
                 
                 {gameMode === 'multiplayer' && gameStarted && (
-                  <motion.button
-                    onClick={() => setIsPaused(!isPaused)}
-                    className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base"
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    {isPaused ? 'Resume' : 'Pause'}
-                  </motion.button>
+                  <>
+                    <motion.button
+                      onClick={handleResign}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300 text-sm lg:text-base"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      Resign
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={handleOfferDraw}
+                      disabled={drawOffer?.status === 'pending'}
+                      className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 text-white font-medium rounded-lg hover:from-yellow-600 hover:to-yellow-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {drawOffer?.status === 'pending' ? 'Draw Offered' : 'Offer Draw'}
+                    </motion.button>
+                    
+                    {isPaused ? (
+                      <motion.button
+                        onClick={handleResume}
+                        className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300 text-sm lg:text-base"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        Resume Game
+                      </motion.button>
+                    ) : (
+                      <motion.button
+                        onClick={handleRequestPause}
+                        disabled={pauseRequest?.status === 'pending'}
+                        className="w-full px-4 py-2 lg:py-3 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg hover:from-purple-600 hover:to-purple-700 transition-all duration-300 text-sm lg:text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                      >
+                        {pauseRequest?.status === 'pending' ? 'Pause Requested' : 'Request Pause'}
+                      </motion.button>
+                    )}
+                  </>
                 )}
               </div>
             </motion.div>
@@ -934,6 +1174,100 @@ const MultiplayerChess = ({
         </div>
       </div>
 
+      {/* NEW: Draw Offer Modal */}
+      <AnimatePresence>
+        {showDrawModal && drawOffer && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+            >
+              <div className="text-center">
+                <div className="text-4xl mb-4">🤝</div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+                  Draw Offer
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Your opponent has offered a draw. Do you accept?
+                </p>
+                <div className="flex space-x-3">
+                  <motion.button
+                    onClick={() => handleRespondToDraw('accept')}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept Draw
+                  </motion.button>
+                  <motion.button
+                    onClick={() => handleRespondToDraw('decline')}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* NEW: Pause Request Modal */}
+      <AnimatePresence>
+        {showPauseModal && pauseRequest && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+            >
+              <div className="text-center">
+                <div className="text-4xl mb-4">⏸️</div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+                  Pause Request
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Your opponent wants to pause the game. Do you agree?
+                </p>
+                <div className="flex space-x-3">
+                  <motion.button
+                    onClick={() => handleRespondToPause('accept')}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white font-medium rounded-lg hover:from-green-600 hover:to-green-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Accept Pause
+                  </motion.button>
+                  <motion.button
+                    onClick={() => handleRespondToPause('decline')}
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-red-600 text-white font-medium rounded-lg hover:from-red-600 hover:to-red-700 transition-all duration-300"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Decline
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Game Over Modal */}
       <AnimatePresence>
         {showGameOver && gameResult && (
@@ -960,10 +1294,12 @@ const MultiplayerChess = ({
                 <p className="text-gray-600 dark:text-gray-400 mb-6 text-sm lg:text-base">
                   {gameResult.reason === 'checkmate' && 'By checkmate'}
                   {gameResult.reason === 'timeout' && 'By timeout'}
+                  {gameResult.reason === 'resignation' && 'By resignation'}
                   {gameResult.reason === 'stalemate' && 'By stalemate'}
                   {gameResult.reason === 'repetition' && 'By threefold repetition'}
                   {gameResult.reason === 'insufficient_material' && 'By insufficient material'}
                   {gameResult.reason === 'fifty_move' && 'By 50-move rule'}
+                  {gameResult.reason === 'draw_agreement' && 'By mutual agreement'}
                 </p>
                 <div className="flex gap-3 lg:gap-4">
                   <motion.button
