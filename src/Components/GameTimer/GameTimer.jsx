@@ -13,15 +13,19 @@ const GameTimer = ({
   const [timeLeft, setTimeLeft] = useState(initialTime);
   const intervalRef = useRef(null);
   const lastUpdateRef = useRef(Date.now());
+  const startTimeRef = useRef(Date.now());
 
   // Update time when props change
   useEffect(() => {
     if (serverControlled && currentTime !== null) {
       // For server-controlled timers, use the exact server time
-      setTimeLeft(Math.max(0, Math.floor(currentTime)));
+      const newTime = Math.max(0, Math.floor(currentTime));
+      setTimeLeft(newTime);
+      startTimeRef.current = Date.now();
     } else {
       // For practice mode, use initial time
       setTimeLeft(initialTime);
+      startTimeRef.current = Date.now();
     }
   }, [initialTime, serverControlled, currentTime]);
 
@@ -32,8 +36,8 @@ const GameTimer = ({
       intervalRef.current = null;
     }
     
-    // Only run local timer for practice mode (non-server-controlled)
-    if (!serverControlled && isActive && !isPaused && timeLeft > 0) {
+    // FIXED: Only run local timer for practice mode OR when server-controlled timer is active
+    if (isActive && !isPaused && timeLeft > 0) {
       lastUpdateRef.current = Date.now();
       
       intervalRef.current = setInterval(() => {
@@ -59,7 +63,7 @@ const GameTimer = ({
         intervalRef.current = null;
       }
     };
-  }, [serverControlled, isActive, isPaused, timeLeft, onTimeUp, player]);
+  }, [isActive, isPaused, timeLeft, onTimeUp, player, serverControlled]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -102,9 +106,6 @@ const GameTimer = ({
         </div>
         <div className="text-sm text-gray-600 dark:text-gray-400 capitalize mb-2">
           {player} Player
-          {serverControlled && (
-            <span className="block text-xs text-blue-500">Server Sync</span>
-          )}
           {isActive && !isPaused && (
             <span className="block text-xs text-green-500">● Active</span>
           )}

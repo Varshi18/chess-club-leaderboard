@@ -26,7 +26,7 @@ const MultiplayerChess = ({
   const [gameResult, setGameResult] = useState(null);
   const [showGameOver, setShowGameOver] = useState(false);
   const [timeControl, setTimeControl] = useState({ white: initialTimeControl, black: initialTimeControl });
-  const [activePlayer, setActivePlayer] = useState('white');
+  const [activePlayer, setActivePlayer] = useState('white'); // FIXED: Always start with white
   const [isPaused, setIsPaused] = useState(false);
   const [gameStarted, setGameStarted] = useState(gameMode === 'practice');
   const [syncStatus, setSyncStatus] = useState('disconnected');
@@ -41,7 +41,7 @@ const MultiplayerChess = ({
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
-  const lastSyncTimeRef = useRef(Date.now());
+  const timerStartTimeRef = useRef(Date.now());
 
   // Set up API
   const api = axios.create({
@@ -91,7 +91,7 @@ const MultiplayerChess = ({
         
         console.log('🎯 Game session loaded:', session);
         
-        // Determine player color based on server data
+        // FIXED: Determine player color based on server data
         const isWhite = session.whitePlayerId === user.id;
         const assignedColor = isWhite ? 'white' : 'black';
         setPlayerColor(assignedColor);
@@ -154,23 +154,21 @@ const MultiplayerChess = ({
       setGamePosition(newGame.fen());
       setMoveHistory(newGame.history({ verbose: true }));
       
-      // Set turn state from server
-      const serverTurn = session.turn || newGame.turn();
+      // FIXED: Set turn state from server - always start with white
+      const serverTurn = session.turn || 'w'; // Default to white if no turn specified
       setActivePlayer(serverTurn === 'w' ? 'white' : 'black');
       setGameStateVersion(session.version || 0);
       
-      // FIXED: Set timer values from server with proper synchronization
+      // FIXED: Set timer values with proper time calculation
       const now = Date.now();
-      const serverTime = new Date(session.lastMoveAt || session.createdAt).getTime();
-      const timeDiff = now - serverTime;
+      const lastMoveTime = session.lastMoveAt ? new Date(session.lastMoveAt).getTime() : now;
+      const elapsedSeconds = Math.floor((now - lastMoveTime) / 1000);
       
-      // Calculate current time based on server state and elapsed time
-      let whiteTime = session.whiteTimeLeft || session.timeControl;
-      let blackTime = session.blackTimeLeft || session.timeControl;
+      let whiteTime = session.whiteTimeLeft || session.timeControl || initialTimeControl;
+      let blackTime = session.blackTimeLeft || session.timeControl || initialTimeControl;
       
-      // If it's someone's turn and time has passed, subtract elapsed time
+      // Subtract elapsed time from the current player's clock
       if (session.status === 'active' && session.lastMoveAt) {
-        const elapsedSeconds = Math.floor(timeDiff / 1000);
         if (serverTurn === 'w') {
           whiteTime = Math.max(0, whiteTime - elapsedSeconds);
         } else {
@@ -183,7 +181,10 @@ const MultiplayerChess = ({
         black: blackTime
       });
       
-      // Update turn indicator
+      // Update timer start time for accurate countdown
+      timerStartTimeRef.current = now;
+      
+      // FIXED: Update turn indicator based on player color and server state
       const isPlayerTurn = (serverTurn === 'w' && playerColor === 'white') || 
                           (serverTurn === 'b' && playerColor === 'black');
       setIsMyTurn(isPlayerTurn);
@@ -265,9 +266,6 @@ const MultiplayerChess = ({
         // Flash sync indicator
         setTimeout(() => setSyncStatus('connected'), 500);
       }
-      
-      // Update last sync time
-      lastSyncTimeRef.current = Date.now();
       
     } catch (error) {
       console.error('❌ Error syncing with server:', error);
@@ -577,7 +575,7 @@ const MultiplayerChess = ({
     setGameResult(null);
     setShowGameOver(false);
     setTimeControl({ white: initialTimeControl, black: initialTimeControl });
-    setActivePlayer('white');
+    setActivePlayer('white'); // FIXED: Always start with white
     setIsPaused(false);
     setGameStarted(gameMode === 'practice');
     setIsMyTurn(true);
@@ -716,6 +714,7 @@ const MultiplayerChess = ({
         {gameMode !== 'practice' && gameStarted && (
           <div className="lg:col-span-2 order-1 lg:order-1">
             <div className="flex lg:flex-col gap-3 lg:gap-4">
+              {/* FIXED: Black timer on top (opponent's perspective) */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
                   initialTime={timeControl.black}
@@ -727,6 +726,7 @@ const MultiplayerChess = ({
                   currentTime={timeControl.black}
                 />
               </div>
+              {/* FIXED: White timer on bottom (player's perspective) */}
               <div className="flex-1 lg:flex-none">
                 <GameTimer
                   initialTime={timeControl.white}
