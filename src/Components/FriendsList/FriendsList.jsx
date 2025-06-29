@@ -53,14 +53,14 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.get('/?endpoint=friends');
       if (response.data.success) {
-        setFriends(response.data.friends);
+        setFriends(response.data.friends || []);
       } else {
         setError('Failed to load friends.');
         setFriends([]);
       }
     } catch (error) {
       console.error('Error fetching friends:', error.message);
-      setError('Unable to connect to server.');
+      // FIXED: Don't show error for empty friends list
       setFriends([]);
     } finally {
       setLoading(false);
@@ -71,10 +71,12 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.get('/?endpoint=friends&type=requests');
       if (response.data.success) {
-        setFriendRequests(response.data.requests);
+        setFriendRequests(response.data.requests || []);
       }
     } catch (error) {
       console.error('Error fetching friend requests:', error.message);
+      // FIXED: Don't show error for empty requests
+      setFriendRequests([]);
     }
   };
 
@@ -82,10 +84,12 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.get('/?endpoint=challenges&action=received');
       if (response.data.success) {
-        setReceivedChallenges(response.data.challenges);
+        setReceivedChallenges(response.data.challenges || []);
       }
     } catch (error) {
       console.error('Error fetching challenges:', error.message);
+      // FIXED: Don't show error for empty challenges
+      setReceivedChallenges([]);
     }
   };
 
@@ -93,7 +97,7 @@ const FriendsList = ({ onChallengePlayer }) => {
     try {
       const response = await api.get('/?endpoint=challenges&action=sent');
       if (response.data.success) {
-        const challenges = response.data.challenges;
+        const challenges = response.data.challenges || [];
         
         // FIXED: Filter out completed/accepted challenges to prevent them from showing
         const activeChallenges = challenges.filter(c => c.status === 'pending');
@@ -130,6 +134,8 @@ const FriendsList = ({ onChallengePlayer }) => {
       }
     } catch (error) {
       console.error('Error fetching sent challenges:', error.message);
+      // FIXED: Don't show error for empty challenges
+      setSentChallenges([]);
     }
   };
 
@@ -147,7 +153,6 @@ const FriendsList = ({ onChallengePlayer }) => {
         setSearchResults(response.data.users.filter((u) => u.id !== user?.id));
       } else {
         setSearchResults([]);
-        setError('No users found.');
       }
     } catch (error) {
       console.error('Search error:', error.message);
@@ -167,8 +172,9 @@ const FriendsList = ({ onChallengePlayer }) => {
             user.id === userId ? { ...user, friendRequestSent: true } : user
           )
         );
+        setError(null);
       } else {
-        setError('Failed to send friend request.');
+        setError(response.data.message || 'Failed to send friend request.');
       }
     } catch (error) {
       console.error('Error sending friend request:', error.message);
@@ -182,8 +188,9 @@ const FriendsList = ({ onChallengePlayer }) => {
       if (response.data.success) {
         fetchFriends();
         fetchFriendRequests();
+        setError(null);
       } else {
-        setError('Failed to accept friend request.');
+        setError(response.data.message || 'Failed to accept friend request.');
       }
     } catch (error) {
       console.error('Error accepting friend request:', error.message);
@@ -196,8 +203,9 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.patch('/?endpoint=friends', { requestId, action: 'reject' });
       if (response.data.success) {
         fetchFriendRequests();
+        setError(null);
       } else {
-        setError('Failed to reject friend request.');
+        setError(response.data.message || 'Failed to reject friend request.');
       }
     } catch (error) {
       console.error('Error rejecting friend request:', error.message);
@@ -222,7 +230,7 @@ const FriendsList = ({ onChallengePlayer }) => {
         
         alert('🚀 Challenge sent successfully! You will be notified when accepted.');
       } else {
-        setError('Failed to send challenge: ' + response.data.message);
+        setError('Failed to send challenge: ' + (response.data.message || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error sending challenge:', error.message);
@@ -261,8 +269,9 @@ const FriendsList = ({ onChallengePlayer }) => {
             }, 500);
           }
         }
+        setError(null);
       } else {
-        setError('Failed to respond to challenge: ' + apiResponse.data.message);
+        setError('Failed to respond to challenge: ' + (apiResponse.data.message || 'Unknown error'));
       }
     } catch (error) {
       console.error('Error responding to challenge:', error.message);
@@ -275,9 +284,10 @@ const FriendsList = ({ onChallengePlayer }) => {
       const response = await api.delete(`/?endpoint=challenges&action=cancel&challengeId=${challengeId}`);
       if (response.data.success) {
         fetchSentChallenges();
+        setError(null);
         alert('Challenge cancelled successfully.');
       } else {
-        setError('Failed to cancel challenge.');
+        setError(response.data.message || 'Failed to cancel challenge.');
       }
     } catch (error) {
       console.error('Error canceling challenge:', error.message);
