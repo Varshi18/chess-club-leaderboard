@@ -34,11 +34,68 @@ const MultiplayerChess = ({
   const [gameStateVersion, setGameStateVersion] = useState(0);
   const [gameSession, setGameSession] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
-  
+  const [whiteTime, setWhiteTime] = useState(600);
+  const [blackTime, setBlackTime] = useState(600);
+
   const { user } = useAuth();
   const syncIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
   const playerColorRef = useRef('white'); // FIXED: Use ref to persist player color
+  const handleMove = async (sourceSquare, targetSquare) => {
+  const newGame = new Chess(game.fen());
+  const move = newGame.move({
+    from: sourceSquare,
+    to: targetSquare,
+    promotion: 'q',
+  });
+
+  if (!move) return false;
+
+  setGame(newGame);
+  setFen(newGame.fen());
+  setTurn(newGame.turn());
+  setMoveHistory(newGame.history()); // ✅ This line is crucial!
+
+  await axios.post(`/api/chess/${gameId}/move`, {
+    move,
+    player: playerName,
+  });
+
+  return true;
+};
+
+  const fetchGameState = async () => {
+  try {
+    const res = await axios.get(`/api/chess/${gameId}`);
+    const data = res.data;
+
+    const updatedGame = new Chess();
+    data.gameState.moves.forEach((move) => updatedGame.move(move));
+
+    setGame(updatedGame);
+    setFen(updatedGame.fen());
+    setMoveHistory(data.gameState.moves || []);
+    setTurn(updatedGame.turn());
+    setWhiteTime(data.gameState.whiteTimeLeft);
+    setBlackTime(data.gameState.blackTimeLeft);
+
+    if (updatedGame.isGameOver()) {
+      setIsGameOver(true);
+      setStatus(updatedGame.isCheckmate()
+        ? `Checkmate! ${updatedGame.turn() === 'w' ? 'Black' : 'White'} wins!`
+        : 'Draw!');
+    } else {
+      setStatus(`${updatedGame.turn() === 'w' ? 'White' : 'Black'} to move`);
+    }
+  } catch (err) {
+    console.error('Error syncing game:', err);
+  }
+};
+useEffect(() => {
+  fetchGameState();
+  const interval = setInterval(fetchGameState, 2000);
+  return () => clearInterval(interval);
+}, []);
 
   // Set up API
   const api = axios.create({
